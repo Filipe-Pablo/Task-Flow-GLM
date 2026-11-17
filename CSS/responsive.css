@@ -1,0 +1,115 @@
+/* ============ TASKFLOW — RESPONSIVE (mobile-first adjustments) ============ */
+
+/* ---------- Tablet ≤ 1024px ---------- */
+@media (max-width: 1024px) {
+  .sidebar { width: 76px; padding: 16px 10px; }
+  .sidebar__logo-text,
+  .nav-item__label,
+  .nav-badge,
+  .sidebar__section-title,
+  .sidebar__section-action,
+  .nav-categories,
+  .nav-item[data-view="categories"],
+  .theme-toggle__label,
+  .theme-toggle__state,
+  .user-chip__info { display: none; }
+
+  .sidebar__logo { justify-content: center; padding: 0; }
+  .nav-item { justify-content: center; padding: 11px 0; }
+  .sidebar__section { justify-content: center; margin: 14px 0 6px; }
+  .sidebar__footer { align-items: center; }
+  .theme-toggle { justify-content: center; padding: 10px; }
+  .user-chip { justify-content: center; padding: 8px 0; }
+
+  .main { margin-left: 76px; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .content { padding: 20px 20px 48px; }
+  .header { padding: 12px 20px; }
+  .search-box { width: 220px; }
+  .welcome-banner { flex-direction: column; align-items: stretch; }
+  .welcome-banner__extra { justify-content: space-between; }
+}
+
+/* ---------- Mobile ≤ 768px ---------- */
+@media (max-width: 768px) {
+  .header__menu { display: grid; }
+
+  .sidebar {
+    transform: translateX(-105%);
+    width: 276px;
+    padding: 20px 16px;
+    box-shadow: var(--shadow);
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  /* restore hidden labels inside the drawer */
+  .sidebar__logo-text,
+  .nav-item__label,
+  .nav-badge,
+  .sidebar__section-title,
+  .sidebar__section-action,
+  .nav-categories,
+  .nav-item[data-view="categories"],
+  .theme-toggle__label,
+  .theme-toggle__state,
+  .user-chip__info { display: initial; }
+
+  .sidebar__logo { justify-content: flex-start; padding: 2px 4px; }
+  .nav-item { justify-content: flex-start; padding: 9px 12px; }
+  .sidebar__section { justify-content: space-between; margin: 18px 12px 6px; }
+  .theme-toggle { justify-content: flex-start; padding: 10px 12px; }
+  .user-chip { justify-content: flex-start; padding: 8px; }
+  .sidebar__footer { align-items: stretch; }
+
+  .main { margin-left: 0; }
+
+  .header { padding: 10px 14px; gap: 10px; }
+  .header__greet, .header__sep { display: none; }
+  .header__title { font-size: 15px; }
+  .search-box { width: auto; flex: 1; }
+  .search-box__kbd { display: none; }
+  .notif-panel { right: 12px; left: 12px; width: auto; }
+
+  .content { padding: 16px 14px 80px; }
+
+  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 14px; }
+  .stat-card__value { font-size: 24px; }
+  .stat-card__footer { flex-direction: column; align-items: flex-start; gap: 4px; }
+
+  .welcome-banner { padding: 18px; border-radius: 14px; }
+  .welcome-banner h2 { font-size: 20px; }
+  .welcome-banner__extra { flex-direction: column; align-items: stretch; gap: 12px; }
+
+  .field-row { flex-direction: column; gap: 0; }
+
+  .toolbar .search-box { width: 100%; order: -1; }
+  .toolbar { gap: 8px; }
+  .toolbar__title { width: 100%; margin-right: 0; }
+
+  /* task rows adapted */
+  .task-row { flex-wrap: wrap; padding: 12px 14px; }
+  .task-row__side { width: 100%; justify-content: space-between; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .task-row__side .due-chip { order: 1; }
+  .task-row__side .task-action { order: 2; }
+
+  .task-grid { grid-template-columns: 1fr; }
+  .cat-grid { grid-template-columns: 1fr; }
+
+  .modal { max-height: calc(100vh - 24px); }
+  .modal__body { padding: 18px 18px 6px; }
+  .modal__footer { padding: 12px 18px; }
+  .modal__kbd-hint { display: none; }
+  .modal__footer .btn { flex: 1; }
+
+  .theme-cards { grid-template-columns: 1fr; }
+  .toasts { left: 14px; right: 14px; bottom: 14px; max-width: none; }
+}
+
+/* ---------- Small phones ≤ 480px ---------- */
+@media (max-width: 480px) {
+  .stats-grid { grid-template-columns: 1fr; }
+  .stat-card__footer { flex-direction: row; align-items: center; }
+  .header__actions .icon-btn#btnThemeHeader { display: none; }
+  .velocity { padding: 10px 12px; }
+}

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="TaskFlow — professional task management web app">
+  <title>TaskFlow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../CSS/themes.css">
+  <link rel="stylesheet" href="../CSS/style.css">
+  <link rel="stylesheet" href="../CSS/components.css">
+  <link rel="stylesheet" href="../CSS/responsive.css">
+</head>
+<body>
+
+  <!-- ==================== SIDEBAR ==================== -->
+  <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+    <div class="sidebar__logo">
+      <span class="sidebar__logo-mark" aria-hidden="true">TF</span>
+      <span class="sidebar__logo-text">TaskFlow <span class="logo-pro">Pro</span></span>
+    </div>
+
+    <button class="btn btn--primary btn--block" id="btnNewTaskSidebar" type="button" data-action="open-create">
+      <span data-icon="plus"></span> New Task
+    </button>
+
+    <nav class="sidebar__nav" id="sidebarNav">
+      <a href="#dashboard" class="nav-item active" data-view="dashboard">
+        <span class="nav-item__icon" data-icon="dashboard"></span>
+        <span class="nav-item__label">Dashboard</span>
+      </a>
+      <a href="#mytasks" class="nav-item" data-view="mytasks">
+        <span class="nav-item__icon" data-icon="tasks"></span>
+        <span class="nav-item__label">My Tasks</span>
+        <span class="nav-badge" data-badge="mytasks">0</span>
+      </a>
+      <a href="#today" class="nav-item" data-view="today">
+        <span class="nav-item__icon" data-icon="calendar"></span>
+        <span class="nav-item__label">Today</span>
+        <span class="nav-badge" data-badge="today">0</span>
+      </a>
+      <a href="#upcoming" class="nav-item" data-view="upcoming">
+        <span class="nav-item__icon" data-icon="clock"></span>
+        <span class="nav-item__label">Upcoming</span>
+        <span class="nav-badge" data-badge="upcoming">0</span>
+      </a>
+      <a href="#completed" class="nav-item" data-view="completed">
+        <span class="nav-item__icon" data-icon="check-circle"></span>
+        <span class="nav-item__label">Completed</span>
+        <span class="nav-badge" data-badge="completed">0</span>
+      </a>
+
+      <div class="sidebar__section">
+        <span class="sidebar__section-title">Categories</span>
+        <button class="sidebar__section-action" type="button" data-action="goto-categories" aria-label="Manage categories">
+          <span data-icon="plus-sm"></span>
+        </button>
+      </div>
+      <div class="nav-categories" id="navCategories"></div>
+
+      <a href="#categories" class="nav-item" data-view="categories">
+        <span class="nav-item__icon" data-icon="folder"></span>
+        <span class="nav-item__label">Manage Categories</span>
+      </a>
+
+      <div class="sidebar__spacer"></div>
+      <a href="#profile" class="nav-item" data-view="profile">
+        <span class="nav-item__icon" data-icon="user"></span>
+        <span class="nav-item__label">Profile</span>
+      </a>
+      <a href="#settings" class="nav-item" data-view="settings">
+        <span class="nav-item__icon" data-icon="settings"></span>
+        <span class="nav-item__label">Settings</span>
+      </a>
+    </nav>
+
+    <div class="sidebar__footer">
+      <button class="theme-toggle" id="btnThemeToggle" type="button" aria-label="Toggle theme">
+        <span class="theme-toggle__icon" data-icon="moon"></span>
+        <span class="theme-toggle__label">Dark Theme</span>
+        <span class="theme-toggle__state">Active</span>
+      </button>
+      <div class="user-chip" data-action="goto-profile" role="button" tabindex="0">
+        <span class="avatar avatar--sm" id="avatarSidebar">AR</span>
+        <span class="user-chip__info">
+          <span class="user-chip__name" id="sidebarUserName">Alex Rivera</span>
+          <span class="user-chip__role">Product Designer</span>
+        </span>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- ==================== MAIN ==================== -->
+  <div class="main">
+    <header class="header">
+      <button class="icon-btn header__menu" id="btnMenu" type="button" aria-label="Open menu">
+        <span data-icon="menu"></span>
+      </button>
+      <div class="header__titles">
+        <span class="header__greet" id="headerGreet">Good day</span>
+        <span class="header__sep" aria-hidden="true">/</span>
+        <h1 class="header__title" id="pageTitle">Dashboard Overview</h1>
+      </div>
+      <div class="header__actions">
+        <div class="search-box">
+          <span class="search-box__icon" data-icon="search"></span>
+          <input type="search" id="globalSearch" class="search-box__input" placeholder="Search tasks..." aria-label="Search tasks">
+          <span class="search-box__kbd">Ctrl K</span>
+        </div>
+        <button class="icon-btn header__bell" id="btnNotifications" type="button" aria-label="Notifications" data-action="toggle-notifications">
+          <span data-icon="bell"></span>
+          <span class="dot-indicator" id="notifDot" hidden></span>
+        </button>
+        <div class="notif-panel" id="notifPanel" hidden aria-label="Due notifications"></div>
+        <button class="icon-btn" id="btnThemeHeader" type="button" aria-label="Toggle theme" data-icon-holder>
+          <span data-icon="sun"></span>
+        </button>
+        <button class="avatar avatar--btn" id="avatarHeader" type="button" data-action="goto-profile" aria-label="Open profile">AR</button>
+      </div>
+    </header>
+
+    <main class="content" id="appContent" tabindex="-1"></main>
+  </div>
+
+  <!-- ==================== TASK MODAL ==================== -->
+  <div class="modal-overlay" id="taskModal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle" hidden>
+    <div class="modal">
+      <div class="modal__body">
+        <h2 class="modal__title" id="taskModalTitle">New Task</h2>
+
+        <div class="field">
+          <label class="field__label" for="taskTitle">Task Title <span class="req">*</span></label>
+          <input type="text" id="taskTitle" class="input" maxlength="120" placeholder="e.g. Design token audit and sync with engineering" autocomplete="off">
+          <span class="field__error" id="taskTitleError" hidden>Title is required</span>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="taskDesc">Description</label>
+          <textarea id="taskDesc" class="input textarea" rows="4" maxlength="500" placeholder="Outline execution criteria, dependencies, or link references..."></textarea>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label class="field__label" for="taskDue">Due Date</label>
+            <input type="date" id="taskDue" class="input">
+          </div>
+          <div class="field">
+            <label class="field__label" for="taskPriority">Priority</label>
+            <select id="taskPriority" class="input select">
+              <option value="low">Low Priority</option>
+              <option value="medium">Medium Priority</option>
+              <option value="high" selected>High Priority</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field__label" for="taskCategory">Category</label>
+            <select id="taskCategory" class="input select"></select>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field__label">Status</span>
+          <div class="segmented" id="taskStatusGroup" role="radiogroup" aria-label="Status">
+            <button type="button" class="segmented__btn" data-status="todo">To Do</button>
+            <button type="button" class="segmented__btn" data-status="inprogress">In Progress</button>
+            <button type="button" class="segmented__btn" data-status="completed">Done</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal__footer">
+        <span class="modal__meta" id="taskModalMeta"></span>
+        <span class="modal__kbd-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> to quickly save</span>
+        <button type="button" class="link-danger" id="btnModalDelete" data-action="modal-delete" hidden>Delete Task</button>
+        <span class="modal__footer-spacer"></span>
+        <button type="button" class="btn btn--ghost" data-action="close-modal">Cancel</button>
+        <button type="button" class="btn btn--primary" id="btnModalSubmit" data-action="submit-task">
+          <span data-icon="plus-sm"></span> Create Task
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TOASTS ==================== -->
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script src="../JS/storage.js"></script>
+  <script src="../JS/theme.js"></script>
+  <script src="../JS/filters.js"></script>
+  <script src="../JS/tasks.js"></script>
+  <script src="../JS/app.js"></script>
+</body>
+</html>
