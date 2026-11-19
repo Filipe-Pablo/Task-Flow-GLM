@@ -673,3 +673,17 @@ input[type="date"].input::-webkit-calendar-picker-indicator { filter: invert(0.5
 }
 .switch.on { background: var(--primary); border-color: var(--primary); }
 .switch.on::after { transform: translateX(18px); background: #fff; }
+
+/* ---------- Loading Spinner ---------- */
+.loading-spinner {
+  width: 36px;
+  height: 36px;
+  margin: 0 auto 16px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: tf-spin 0.8s linear infinite;
+}
+@keyframes tf-spin {
+  to { transform: rotate(360deg); }
+}

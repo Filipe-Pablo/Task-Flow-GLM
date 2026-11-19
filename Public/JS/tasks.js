@@ -1,6 +1,12 @@
-/* ============ TASKFLOW — TASKS (CRUD, rendering, modal, toasts) ============ */
+/* ============ TASKFLOW — TASKS (Firestore CRUD, rendering, modal, toasts) ============ */
+import { TaskService } from "./taskService.js";
 
 const Tasks = (() => {
+  let tasksList = [];
+  let isLoadingTasks = true;
+  let loadError = null;
+  let unsubscribeTasks = null;
+
   const PRIORITY_META = {
     low:    { label: 'Low',    badge: 'success' },
     medium: { label: 'Medium', badge: 'warning' },
@@ -14,18 +20,17 @@ const Tasks = (() => {
   };
 
   /* ---------- date helpers ---------- */
-  const todayISO = () => {
-    const d = new Date();
-    return (
-      d.getFullYear() + '-' +
-      String(d.getMonth() + 1).padStart(2, '0') + '-' +
-      String(d.getDate()).padStart(2, '0')
-    );
-  };
+  const toLocalISO = (d) =>
+    d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+
+  const todayISO = () => toLocalISO(new Date());
 
   const daysBetween = (iso, base) => {
     if (!iso) return null;
-    const a = new Date(iso + 'T12:00:00');
+    const clean = typeof iso === 'string' && iso.includes('T') ? iso.split('T')[0] : String(iso);
+    const a = new Date(clean + 'T12:00:00');
     const b = new Date((base || todayISO()) + 'T12:00:00');
     return Math.round((a - b) / 86400000);
   };
@@ -34,15 +39,21 @@ const Tasks = (() => {
   const isOverdue = (t) =>
     t.status !== 'completed' && t.dueDate && daysBetween(t.dueDate) < 0;
 
-  const formatLong = (iso) =>
-    new Date(iso + 'T12:00:00').toLocaleDateString('en-US', {
+  const formatLong = (iso) => {
+    if (!iso) return '';
+    const clean = typeof iso === 'string' && iso.includes('T') ? iso.split('T')[0] : String(iso);
+    return new Date(clean + 'T12:00:00').toLocaleDateString('en-US', {
       weekday: 'long', month: 'long', day: 'numeric'
     });
+  };
 
-  const formatShort = (iso) =>
-    new Date(iso + 'T12:00:00').toLocaleDateString('en-US', {
+  const formatShort = (iso) => {
+    if (!iso) return '';
+    const clean = typeof iso === 'string' && iso.includes('T') ? iso.split('T')[0] : String(iso);
+    return new Date(clean + 'T12:00:00').toLocaleDateString('en-US', {
       month: 'short', day: 'numeric'
     });
+  };
 
   const dueLabel = (t) => {
     if (!t.dueDate) return { text: 'No date', cls: '' };
@@ -53,84 +64,136 @@ const Tasks = (() => {
     if (d === 1) return { text: 'Tomorrow', cls: 'due-chip--today' };
     if (d === -1) return { text: 'Yesterday', cls: 'due-chip--overdue' };
     if (d < -1) return { text: `${formatShort(t.dueDate)} · Overdue`, cls: 'due-chip--overdue' };
-    return { text: d <= 7 ? formatShort(t.dueDate) : formatShort(t.dueDate), cls: '' };
+    return { text: formatShort(t.dueDate), cls: '' };
   };
 
   const categoryOf = (t) =>
-    Storage.getCategories().find((c) => c.id === t.category) || null;
+    (typeof Storage !== 'undefined' ? Storage.getCategories() : []).find((c) => c.id === t.category) || null;
+
+  /* ---------- Task normalization ---------- */
+  const normalizeTask = (raw) => {
+    let createdIso = todayISO();
+    if (raw.createdAt) {
+      if (typeof raw.createdAt.toDate === 'function') {
+        createdIso = toLocalISO(raw.createdAt.toDate());
+      } else if (typeof raw.createdAt === 'string') {
+        createdIso = raw.createdAt.split('T')[0];
+      } else if (raw.createdAt instanceof Date) {
+        createdIso = toLocalISO(raw.createdAt);
+      }
+    }
+    const isCompleted = raw.status === 'completed' || raw.completed === true;
+    return {
+      id: raw.id,
+      title: raw.title || '',
+      description: raw.description || '',
+      dueDate: raw.dueDate || '',
+      createdAt: createdIso,
+      completedAt: raw.completedAt || (isCompleted ? createdIso : null),
+      priority: raw.priority || 'medium',
+      category: raw.category || '',
+      status: isCompleted ? 'completed' : (raw.status || 'todo'),
+      completed: isCompleted
+    };
+  };
+
+  /* ---------- Initialization & Real-Time Sync ---------- */
+  const init = () => {
+    if (unsubscribeTasks) return;
+    isLoadingTasks = true;
+    loadError = null;
+
+    unsubscribeTasks = TaskService.subscribeTasks(
+      (docs) => {
+        tasksList = docs.map(normalizeTask);
+        isLoadingTasks = false;
+        loadError = null;
+        if (typeof App !== 'undefined' && typeof App.refresh === 'function') {
+          App.refresh();
+        }
+      },
+      (error) => {
+        isLoadingTasks = false;
+        loadError = error.message || 'Unable to connect to Firestore.';
+        console.error('Task synchronization error:', error);
+        if (typeof App !== 'undefined' && typeof App.refresh === 'function') {
+          App.refresh();
+        }
+        toast('Firestore error: ' + loadError, 'danger');
+      }
+    );
+  };
+
+  const retry = () => {
+    if (unsubscribeTasks) {
+      unsubscribeTasks();
+      unsubscribeTasks = null;
+    }
+    init();
+  };
 
   /* ---------- CRUD ---------- */
-  const all = () => Storage.getTasks();
-  const getById = (id) => all().find((t) => t.id === id) || null;
+  const all = () => tasksList;
+  const getById = (id) => tasksList.find((t) => t.id === id) || null;
+  const isLoading = () => isLoadingTasks;
+  const getError = () => loadError;
 
-  const commit = (tasks) => Storage.saveTasks(tasks);
-
-  const createTask = (data) => {
-    const tasks = all();
-    tasks.push({
-      id: Storage.uid('task'),
-      title: data.title.trim(),
-      description: (data.description || '').trim(),
-      dueDate: data.dueDate || '',
-      createdAt: todayISO(),
-      completedAt: data.status === 'completed' ? todayISO() : null,
-      priority: data.priority,
-      category: data.category,
-      status: data.status
-    });
-    commit(tasks);
+  const createTask = async (data) => {
+    return await TaskService.createTask(data);
   };
 
-  const updateTask = (id, data) => {
-    const tasks = all();
-    const idx = tasks.findIndex((t) => t.id === id);
-    if (idx === -1) return;
-    const prev = tasks[idx];
-    tasks[idx] = {
-      ...prev,
-      title: data.title.trim(),
-      description: (data.description || '').trim(),
-      dueDate: data.dueDate || '',
-      priority: data.priority,
-      category: data.category,
-      status: data.status,
-      completedAt:
-        data.status === 'completed' ? (prev.completedAt || todayISO()) : null
-    };
-    commit(tasks);
+  const updateTask = async (id, data) => {
+    return await TaskService.updateTask(id, data);
   };
 
-  /* DELETE — immediate, no confirmation, no modal */
-  const deleteTask = (id) => {
-    commit(all().filter((t) => t.id !== id));
-    if (typeof App !== 'undefined') App.refresh();
-    Tasks.toast('Task deleted', 'danger');
+  /* DELETE — immediate, updates Firestore */
+  const deleteTask = async (id) => {
+    try {
+      await TaskService.deleteTask(id);
+      Tasks.toast('Task deleted', 'danger');
+    } catch (err) {
+      console.error('Failed to delete task:', err);
+      Tasks.toast('Failed to delete task', 'danger');
+    }
   };
 
-  /* toggle complete / reopen (undo map kept in memory, not persisted) */
+  /* toggle complete / reopen */
   const prevStatusMap = new Map();
 
-  const toggleComplete = (id) => {
-    const tasks = all();
-    const t = tasks.find((x) => x.id === id);
+  const toggleComplete = async (id) => {
+    const t = getById(id);
     if (!t) return;
-    if (t.status === 'completed') {
-      t.status = prevStatusMap.get(id) || 'todo';
-      t.completedAt = null;
+    const isDone = t.status === 'completed' || t.completed === true;
+    let nextStatus, nextCompleted, nextCompletedAt;
+    if (isDone) {
+      nextStatus = prevStatusMap.get(id) || 'todo';
+      nextCompleted = false;
+      nextCompletedAt = null;
       prevStatusMap.delete(id);
-      commit(tasks);
-      App.refresh();
-      Tasks.toast('Task reopened', 'info');
     } else {
       prevStatusMap.set(id, t.status);
-      t.status = 'completed';
-      t.completedAt = todayISO();
-      commit(tasks);
-      App.refresh();
-      Tasks.toast('Task marked as completed!', 'success', {
-        label: 'Undo',
-        run: () => toggleComplete(id)
+      nextStatus = 'completed';
+      nextCompleted = true;
+      nextCompletedAt = todayISO();
+    }
+
+    try {
+      await updateTask(id, {
+        status: nextStatus,
+        completed: nextCompleted,
+        completedAt: nextCompletedAt
       });
+      if (isDone) {
+        Tasks.toast('Task reopened', 'info');
+      } else {
+        Tasks.toast('Task marked as completed!', 'success', {
+          label: 'Undo',
+          run: () => toggleComplete(id)
+        });
+      }
+    } catch (err) {
+      console.error('Failed to update task status:', err);
+      Tasks.toast('Failed to update task status', 'danger');
     }
   };
 
@@ -158,7 +221,7 @@ const Tasks = (() => {
   const rowTemplate = (t, icons) => {
     const due = dueLabel(t);
     const cat = categoryOf(t);
-    const done = t.status === 'completed';
+    const done = t.status === 'completed' || t.completed === true;
     const completedOn = done && t.completedAt ? formatShort(t.completedAt) : null;
 
     return `
@@ -193,7 +256,7 @@ const Tasks = (() => {
 
   const cardTemplate = (t, icons) => {
     const due = dueLabel(t);
-    const done = t.status === 'completed';
+    const done = t.status === 'completed' || t.completed === true;
     return `
       <article class="task-card ${done ? 'is-completed' : ''}" data-id="${t.id}">
         <div class="task-card__top">
@@ -218,20 +281,45 @@ const Tasks = (() => {
   };
 
   const renderList = (tasks, opts = {}) => {
-    const icons = window.ICONS;
-    if (!tasks.length) {
+    const icons = window.ICONS || {};
+
+    if (isLoadingTasks) {
+      return loadingState();
+    }
+
+    if (loadError) {
+      return errorState(loadError);
+    }
+
+    if (!tasks || !tasks.length) {
       return emptyState(opts.emptyTitle || 'No tasks found', opts.emptyText || 'Create a new task to get started.');
     }
-    const mode = opts.mode || Filters.state.view;
+
+    const mode = opts.mode || (typeof Filters !== 'undefined' ? Filters.state.view : 'list');
     if (mode === 'cards') {
       return `<div class="task-grid">${tasks.map((t) => cardTemplate(t, icons)).join('')}</div>`;
     }
     return `<div class="task-list">${tasks.map((t) => rowTemplate(t, icons)).join('')}</div>`;
   };
 
+  const loadingState = () => `
+    <div class="empty-state" role="status" aria-live="polite">
+      <div class="loading-spinner"></div>
+      <h3>Loading tasks...</h3>
+      <p>Synchronizing with Firestore database...</p>
+    </div>`;
+
+  const errorState = (msg) => `
+    <div class="empty-state" role="alert">
+      <span class="empty-icon" style="color:var(--danger, #F16C6C)">${window.ICONS ? window.ICONS.alert : '⚠️'}</span>
+      <h3>Failed to load tasks</h3>
+      <p>${escapeHTML(msg || 'Error communicating with Firestore.')}</p>
+      <button class="btn btn--ghost btn--sm" style="margin-top:12px" data-action="retry-fetch">Try again</button>
+    </div>`;
+
   const emptyState = (title, text) => `
     <div class="empty-state">
-      <span class="empty-icon">${window.ICONS.inbox}</span>
+      <span class="empty-icon">${(window.ICONS && window.ICONS.inbox) || ''}</span>
       <h3>${title}</h3>
       <p>${text}</p>
     </div>`;
@@ -284,7 +372,7 @@ const Tasks = (() => {
     delBtn.hidden = !task;
 
     const submit = document.getElementById('btnModalSubmit');
-    submit.innerHTML = `${window.ICONS.plusSm} ${task ? 'Save Changes' : 'Create Task'}`;
+    submit.innerHTML = `${(window.ICONS && window.ICONS.plusSm) || '+'} ${task ? 'Save Changes' : 'Create Task'}`;
 
     clearTitleError();
     return true;
@@ -292,6 +380,7 @@ const Tasks = (() => {
 
   const fillCategorySelect = (selected) => {
     const sel = document.getElementById('taskCategory');
+    if (!sel || typeof Storage === 'undefined') return;
     sel.innerHTML = Storage.getCategories()
       .map((c) => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${escapeHTML(c.name)}</option>`)
       .join('');
@@ -315,7 +404,7 @@ const Tasks = (() => {
     document.getElementById('taskTitleError').hidden = true;
   };
 
-  const submitModal = () => {
+  const submitModal = async () => {
     const titleEl = document.getElementById('taskTitle');
     const title = titleEl.value.trim();
 
@@ -332,35 +421,51 @@ const Tasks = (() => {
       dueDate: document.getElementById('taskDue').value,
       priority: document.getElementById('taskPriority').value,
       category: document.getElementById('taskCategory').value,
-      status: modalStatus
+      status: modalStatus,
+      completed: modalStatus === 'completed',
+      completedAt: modalStatus === 'completed' ? todayISO() : null
     };
 
-    if (editingId) {
-      updateTask(editingId, data);
-      Tasks.toast('Changes saved successfully', 'success');
-    } else {
-      createTask(data);
-      Tasks.toast('Task created successfully', 'success');
+    const submitBtn = document.getElementById('btnModalSubmit');
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
+      if (editingId) {
+        await updateTask(editingId, data);
+        Tasks.toast('Changes saved successfully', 'success');
+      } else {
+        await createTask(data);
+        Tasks.toast('Task created successfully', 'success');
+      }
+      closeModal();
+      if (typeof App !== 'undefined' && typeof App.refresh === 'function') {
+        App.refresh();
+      }
+    } catch (err) {
+      console.error('Error submitting task:', err);
+      Tasks.toast('Failed to save task: ' + (err.message || 'Firestore error'), 'danger');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
     }
-    closeModal();
-    if (typeof App !== 'undefined') App.refresh();
   };
 
-  const modalDelete = () => {
+  const modalDelete = async () => {
     if (!editingId) return;
     const id = editingId;
     closeModal();
-    deleteTask(id);
+    await deleteTask(id);
   };
 
   /* ---------- CATEGORIES CRUD ---------- */
   const createCategory = (name, color) => {
+    if (typeof Storage === 'undefined') return;
     const cats = Storage.getCategories();
     cats.push({ id: Storage.uid('cat'), name: name.trim(), color });
     Storage.saveCategories(cats);
   };
 
   const updateCategory = (id, name, color) => {
+    if (typeof Storage === 'undefined') return;
     const cats = Storage.getCategories();
     const c = cats.find((x) => x.id === id);
     if (c) { c.name = name.trim(); c.color = color; Storage.saveCategories(cats); }
@@ -373,32 +478,45 @@ const Tasks = (() => {
       Tasks.toast('Cannot delete: category has tasks assigned', 'warning');
       return false;
     }
-    Storage.saveCategories(Storage.getCategories().filter((c) => c.id !== id));
+    if (typeof Storage !== 'undefined') {
+      Storage.saveCategories(Storage.getCategories().filter((c) => c.id !== id));
+    }
     Tasks.toast('Category deleted', 'danger');
     return true;
   };
 
   /* ---------- TOASTS ---------- */
   const toast = (msg, type = 'info', action = null) => {
-    if (!Storage.getPrefs().notifications && type !== 'danger') return;
+    if (typeof Storage !== 'undefined' && !Storage.getPrefs().notifications && type !== 'danger') return;
     const wrap = document.getElementById('toasts');
+    if (!wrap) return;
     const el = document.createElement('div');
     el.className = `toast toast--${type}`;
+    const iconName = type === 'danger' ? 'alert' : type === 'warning' ? 'alert' : type === 'success' ? 'check-circle' : 'info';
+    const iconHtml = (window.ICONS && window.ICONS[iconName]) || '';
+    const closeIcon = (window.ICONS && window.ICONS.x) || '×';
+
     el.innerHTML = `
-      <span class="toast__icon">${window.ICONS[type === 'danger' ? 'alert' : type === 'warning' ? 'alert' : type === 'success' ? 'check-circle' : 'info']}</span>
+      <span class="toast__icon">${iconHtml}</span>
       <span class="toast__msg">${escapeHTML(msg)}</span>
       ${action ? `<button class="toast__action" type="button">${escapeHTML(action.label)}</button>` : ''}
-      <button class="toast__close" type="button" aria-label="Dismiss">${window.ICONS.x}</button>`;
+      <button class="toast__close" type="button" aria-label="Dismiss">${closeIcon}</button>`;
+
     const dismiss = () => {
       el.classList.add('leaving');
       setTimeout(() => el.remove(), 200);
     };
-    el.querySelector('.toast__close').addEventListener('click', dismiss);
+
+    const closeBtn = el.querySelector('.toast__close');
+    if (closeBtn) closeBtn.addEventListener('click', dismiss);
     if (action) {
-      el.querySelector('.toast__action').addEventListener('click', () => {
-        action.run();
-        dismiss();
-      });
+      const actBtn = el.querySelector('.toast__action');
+      if (actBtn) {
+        actBtn.addEventListener('click', () => {
+          action.run();
+          dismiss();
+        });
+      }
     }
     wrap.appendChild(el);
     setTimeout(dismiss, 5000);
@@ -406,12 +524,18 @@ const Tasks = (() => {
 
   return {
     PRIORITY_META, STATUS_META,
+    init, retry, isLoading, getError,
     all, getById, createTask, updateTask, deleteTask, toggleComplete,
     isToday, isOverdue, daysBetween, todayISO, formatLong, formatShort, dueLabel,
     categoryOf, priorityBadge, statusBadge, categoryBadge,
-    renderList, emptyState, escapeHTML,
+    renderList, emptyState, loadingState, errorState, escapeHTML,
     openModal, closeModal, submitModal, modalDelete, clearTitleError, setModalStatus,
     createCategory, updateCategory, deleteCategory,
     toast
   };
 })();
+
+// Initialize Tasks on module load and expose to window
+Tasks.init();
+window.Tasks = Tasks;
+export { Tasks };

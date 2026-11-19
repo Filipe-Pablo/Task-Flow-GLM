@@ -1,4 +1,5 @@
 /* ============ TASKFLOW — APP (navigation, views, wiring) ============ */
+import { Tasks } from "./tasks.js";
 
 /* ---------- Inline SVG icon set (assets/icons mirrored) ---------- */
 const svg = (d, extra = '') =>
@@ -665,6 +666,7 @@ const App = (() => {
       if (act === 'toggle-task') { Tasks.toggleComplete(el.dataset.id); return; }
       if (act === 'edit-task') { Tasks.openModal(el.dataset.id); return; }
       if (act === 'delete-task') { Tasks.deleteTask(el.dataset.id); return; }
+      if (act === 'retry-fetch') { Tasks.retry(); return; }
 
       if (act === 'set-theme') { Theme.set(el.dataset.theme); rerenderView(); return; }
 
@@ -806,9 +808,20 @@ const App = (() => {
       const v = location.hash.slice(1);
       if (VIEWS[v] && v !== currentView) navigate(v);
     });
+
+    if (typeof Tasks !== 'undefined' && typeof Tasks.init === 'function') {
+      Tasks.init();
+    }
   };
 
-  document.addEventListener('DOMContentLoaded', init);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 
   return { navigate, refresh, rerenderView };
 })();
+
+window.App = App;
+export { App };
