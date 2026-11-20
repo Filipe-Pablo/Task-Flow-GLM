@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="TaskFlow — Confirmação de e-mail pendente">
+  <title>TaskFlow — Verificar E-mail</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="CSS/style.css">
+  <script type="module">
+    import { authGuard } from "./js/auth-guard.js";
+    await authGuard.requireUnverified({ redirectTo: "dashboard.html" });
+  </script>
+</head>
+<body class="auth-page">
+  <div class="auth-container">
+    <div class="auth-card" style="text-align: center;">
+      <div class="verify-illustration">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect width="20" height="16" x="2" y="4" rx="2"/>
+          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+        </svg>
+      </div>
+
+      <h1 class="auth-title">Confirme seu e-mail</h1>
+      <p class="auth-subtitle">
+        Enviamos um link de confirmação para:
+      </p>
+
+      <div>
+        <span class="verify-email-badge" id="userEmailBadge">Carregando...</span>
+      </div>
+
+      <p class="auth-subtitle" style="font-size: 13px; margin-bottom: 22px;">
+        Clique no link enviado para ativar sua conta e liberar o acesso completo ao aplicativo. Não esqueça de checar a pasta de spam.
+      </p>
+
+      <div id="authAlertArea" aria-live="polite"></div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <button type="button" class="btn-auth-submit" id="btnCheckVerification">
+          <span class="btn-text">Já confirmei meu e-mail</span>
+        </button>
+
+        <button type="button" class="btn-auth-secondary" id="btnResendVerification">
+          <span class="btn-text">Reenviar e-mail de confirmação</span>
+        </button>
+      </div>
+
+      <div id="cooldownNotice" class="cooldown-info" hidden></div>
+
+      <div class="auth-footer" style="margin-top: 28px;">
+        <button type="button" class="btn-auth-secondary" id="btnLogoutVerify" style="width: auto; margin: 0 auto; padding: 6px 16px; font-size: 12px; color: var(--danger); border-color: transparent;">
+          Encerrar sessão e voltar ao login
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

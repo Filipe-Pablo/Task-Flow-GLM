@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="TaskFlow — Gerenciamento profissional de tarefas integrado com Firebase Authentication">
+  <title>TaskFlow — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="CSS/themes.css">
+  <link rel="stylesheet" href="CSS/style.css">
+  <link rel="stylesheet" href="CSS/components.css">
+  <link rel="stylesheet" href="CSS/responsive.css">
+  <!-- Auth guard: protege esta página contra acessos não autenticados ou e-mails não verificados -->
+  <script type="module">
+    import { authGuard } from "./js/auth-guard.js";
+    await authGuard.requireAuth({ requireVerified: true, redirectTo: "index.html" });
+  </script>
+</head>
+<body>
+
+  <!-- ==================== SIDEBAR ==================== -->
+  <aside class="sidebar" id="sidebar" aria-label="Navegação principal">
+    <div class="sidebar__logo">
+      <span class="sidebar__logo-mark" aria-hidden="true">TF</span>
+      <span class="sidebar__logo-text">TaskFlow <span class="logo-pro">Pro</span></span>
+    </div>
+
+    <button class="btn btn--primary btn--block" id="btnNewTaskSidebar" type="button" data-action="open-create">
+      <span data-icon="plus"></span> Nova Tarefa
+    </button>
+
+    <nav class="sidebar__nav" id="sidebarNav">
+      <a href="#dashboard" class="nav-item active" data-view="dashboard">
+        <span class="nav-item__icon" data-icon="dashboard"></span>
+        <span class="nav-item__label">Dashboard</span>
+      </a>
+      <a href="#mytasks" class="nav-item" data-view="mytasks">
+        <span class="nav-item__icon" data-icon="tasks"></span>
+        <span class="nav-item__label">Minhas Tarefas</span>
+        <span class="nav-badge" data-badge="mytasks">0</span>
+      </a>
+      <a href="#today" class="nav-item" data-view="today">
+        <span class="nav-item__icon" data-icon="calendar"></span>
+        <span class="nav-item__label">Hoje</span>
+        <span class="nav-badge" data-badge="today">0</span>
+      </a>
+      <a href="#upcoming" class="nav-item" data-view="upcoming">
+        <span class="nav-item__icon" data-icon="clock"></span>
+        <span class="nav-item__label">Próximas</span>
+        <span class="nav-badge" data-badge="upcoming">0</span>
+      </a>
+      <a href="#completed" class="nav-item" data-view="completed">
+        <span class="nav-item__icon" data-icon="check-circle"></span>
+        <span class="nav-item__label">Concluídas</span>
+        <span class="nav-badge" data-badge="completed">0</span>
+      </a>
+
+      <div class="sidebar__section">
+        <span class="sidebar__section-title">Categorias</span>
+        <button class="sidebar__section-action" type="button" data-action="goto-categories" aria-label="Gerenciar categorias">
+          <span data-icon="plus-sm"></span>
+        </button>
+      </div>
+      <div class="nav-categories" id="navCategories"></div>
+
+      <a href="#categories" class="nav-item" data-view="categories">
+        <span class="nav-item__icon" data-icon="folder"></span>
+        <span class="nav-item__label">Gerenciar Categorias</span>
+      </a>
+
+      <div class="sidebar__spacer"></div>
+      <a href="#profile" class="nav-item" data-view="profile">
+        <span class="nav-item__icon" data-icon="user"></span>
+        <span class="nav-item__label">Perfil & Segurança</span>
+      </a>
+      <a href="#settings" class="nav-item" data-view="settings">
+        <span class="nav-item__icon" data-icon="settings"></span>
+        <span class="nav-item__label">Configurações</span>
+      </a>
+      <a href="atualizar-senha.html" class="nav-item">
+        <span class="nav-item__icon" data-icon="settings"></span>
+        <span class="nav-item__label">Alterar Senha</span>
+      </a>
+    </nav>
+
+    <div class="sidebar__footer">
+      <button class="theme-toggle" id="btnThemeToggle" type="button" aria-label="Alternar tema">
+        <span class="theme-toggle__icon" data-icon="moon"></span>
+        <span class="theme-toggle__label">Tema Escuro</span>
+        <span class="theme-toggle__state">Ativo</span>
+      </button>
+      <div class="user-chip" data-action="goto-profile" role="button" tabindex="0">
+        <span class="avatar avatar--sm" id="avatarSidebar">AR</span>
+        <span class="user-chip__info">
+          <span class="user-chip__name" id="sidebarUserName">Carregando...</span>
+          <span class="user-chip__role" id="sidebarUserEmail">Usuário autenticado</span>
+        </span>
+      </div>
+      <button class="btn btn--ghost btn--block" id="btnSidebarLogout" type="button" style="margin-top: 8px; justify-content: center; gap: 8px; color: var(--danger);">
+        <span data-icon="x"></span> Sair da conta
+      </button>
+    </div>
+  </aside>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- ==================== MAIN ==================== -->
+  <div class="main">
+    <header class="header">
+      <button class="icon-btn header__menu" id="btnMenu" type="button" aria-label="Abrir menu">
+        <span data-icon="menu"></span>
+      </button>
+      <div class="header__titles">
+        <span class="header__greet" id="headerGreet">Olá</span>
+        <span class="header__sep" aria-hidden="true">/</span>
+        <h1 class="header__title" id="pageTitle">Visão Geral</h1>
+      </div>
+      <div class="header__actions">
+        <div class="search-box">
+          <span class="search-box__icon" data-icon="search"></span>
+          <input type="search" id="globalSearch" class="search-box__input" placeholder="Pesquisar tarefas..." aria-label="Pesquisar tarefas">
+          <span class="search-box__kbd">Ctrl K</span>
+        </div>
+        <button class="icon-btn header__bell" id="btnNotifications" type="button" aria-label="Notificações" data-action="toggle-notifications">
+          <span data-icon="bell"></span>
+          <span class="dot-indicator" id="notifDot" hidden></span>
+        </button>
+        <div class="notif-panel" id="notifPanel" hidden aria-label="Tarefas pendentes"></div>
+        <button class="icon-btn" id="btnThemeHeader" type="button" aria-label="Alternar tema" data-icon-holder>
+          <span data-icon="sun"></span>
+        </button>
+        <button class="avatar avatar--btn" id="avatarHeader" type="button" data-action="goto-profile" aria-label="Abrir perfil">TF</button>
+      </div>
+    </header>
+
+    <main class="content" id="appContent" tabindex="-1"></main>
+  </div>
+
+  <!-- ==================== TASK MODAL ==================== -->
+  <div class="modal-overlay" id="taskModal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle" hidden>
+    <div class="modal">
+      <div class="modal__body">
+        <h2 class="modal__title" id="taskModalTitle">Nova Tarefa</h2>
+
+        <div class="field">
+          <label class="field__label" for="taskTitle">Título da Tarefa <span class="req">*</span></label>
+          <input type="text" id="taskTitle" class="input" maxlength="120" placeholder="Ex.: Desenvolver autenticação com Firebase" autocomplete="off">
+          <span class="field__error" id="taskTitleError" hidden>O título é obrigatório</span>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="taskDesc">Descrição</label>
+          <textarea id="taskDesc" class="input textarea" rows="4" maxlength="500" placeholder="Critérios de aceitação, dependências, detalhes técnicos..."></textarea>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label class="field__label" for="taskDue">Data de Entrega</label>
+            <input type="date" id="taskDue" class="input">
+          </div>
+          <div class="field">
+            <label class="field__label" for="taskPriority">Prioridade</label>
+            <select id="taskPriority" class="input select">
+              <option value="low">Baixa Prioridade</option>
+              <option value="medium">Média Prioridade</option>
+              <option value="high" selected>Alta Prioridade</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field__label" for="taskCategory">Categoria</label>
+            <select id="taskCategory" class="input select"></select>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field__label">Status</span>
+          <div class="segmented" id="taskStatusGroup" role="radiogroup" aria-label="Status">
+            <button type="button" class="segmented__btn" data-status="todo">A Fazer</button>
+            <button type="button" class="segmented__btn" data-status="inprogress">Em Andamento</button>
+            <button type="button" class="segmented__btn" data-status="completed">Concluída</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal__footer">
+        <span class="modal__meta" id="taskModalMeta"></span>
+        <span class="modal__kbd-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> para salvar</span>
+        <button type="button" class="link-danger" id="btnModalDelete" data-action="modal-delete" hidden>Excluir Tarefa</button>
+        <span class="modal__footer-spacer"></span>
+        <button type="button" class="btn btn--ghost" data-action="close-modal">Cancelar</button>
+        <button type="button" class="btn btn--primary" id="btnModalSubmit" data-action="submit-task">
+          <span data-icon="plus-sm"></span> Salvar Tarefa
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TOASTS ==================== -->
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script src="JS/storage.js"></script>
+  <script src="JS/theme.js"></script>
+  <script src="JS/filters.js"></script>
+  <script type="module" src="JS/firebase.js"></script>
+  <script type="module" src="JS/taskService.js"></script>
+  <script type="module" src="JS/tasks.js"></script>
+  <script type="module" src="JS/app.js"></script>
+</body>
+</html>

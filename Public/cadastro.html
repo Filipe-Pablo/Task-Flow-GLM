@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="TaskFlow — Criar uma nova conta segura com e-mail e senha">
+  <title>TaskFlow — Cadastro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="CSS/style.css">
+  <script type="module">
+    import { authGuard } from "./js/auth-guard.js";
+    await authGuard.requireGuest({ redirectTo: "dashboard.html" });
+  </script>
+</head>
+<body class="auth-page">
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-header">
+        <a href="index.html" class="auth-logo">
+          <span class="auth-logo__mark" aria-hidden="true">TF</span>
+          <span class="auth-logo__text">TaskFlow <span class="logo-pro">Pro</span></span>
+        </a>
+        <h1 class="auth-title">Crie sua conta</h1>
+        <p class="auth-subtitle">Comece a gerenciar suas tarefas de forma segura</p>
+      </div>
+
+      <div id="authAlertArea" aria-live="polite"></div>
+
+      <form class="auth-form" id="registerForm" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="registerEmail">E-mail <span class="req">*</span></label>
+          <div class="form-input-wrap">
+            <input
+              type="email"
+              id="registerEmail"
+              class="form-input"
+              placeholder="seu.email@exemplo.com"
+              autocomplete="email"
+              required
+            >
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="registerPassword">Senha <span class="req">*</span></label>
+          <div class="form-input-wrap">
+            <input
+              type="password"
+              id="registerPassword"
+              class="form-input has-toggle"
+              placeholder="Crie uma senha forte"
+              autocomplete="new-password"
+              required
+            >
+            <button
+              type="button"
+              class="btn-toggle-pw"
+              data-toggle-target="registerPassword"
+              aria-label="Exibir senha"
+              title="Exibir ou ocultar senha"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="registerConfirmPassword">Confirmar senha <span class="req">*</span></label>
+          <div class="form-input-wrap">
+            <input
+              type="password"
+              id="registerConfirmPassword"
+              class="form-input has-toggle"
+              placeholder="Repita sua senha"
+              autocomplete="new-password"
+              required
+            >
+            <button
+              type="button"
+              class="btn-toggle-pw"
+              data-toggle-target="registerConfirmPassword"
+              aria-label="Exibir senha"
+              title="Exibir ou ocultar senha"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Indicadores interativos dos requisitos de senha -->
+        <div class="password-requirements" id="passwordRequirements" aria-label="Requisitos de segurança da senha">
+          <span class="requirements-title">Requisitos da senha</span>
+          <div class="req-item" id="reqMinLength">
+            <span class="req-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+            <span>Pelo menos 8 caracteres</span>
+          </div>
+          <div class="req-item" id="reqLetter">
+            <span class="req-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+            <span>Pelo menos uma letra</span>
+          </div>
+          <div class="req-item" id="reqNumber">
+            <span class="req-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+            <span>Pelo menos um número</span>
+          </div>
+          <div class="req-item" id="reqMatch">
+            <span class="req-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+            <span>Senhas coincidem</span>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-auth-submit" id="btnRegisterSubmit">
+          <span class="btn-text">Criar conta</span>
+        </button>
+      </form>
+
+      <div class="auth-footer">
+        Já possui uma conta? <a href="index.html" class="auth-link">Fazer login</a>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

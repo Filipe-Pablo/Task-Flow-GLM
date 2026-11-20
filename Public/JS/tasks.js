@@ -98,13 +98,30 @@ const Tasks = (() => {
   };
 
   /* ---------- Initialization & Real-Time Sync ---------- */
+  let initialLoadTimeout = null;
+
   const init = () => {
     if (unsubscribeTasks) return;
     isLoadingTasks = true;
     loadError = null;
 
+    // Timeout de segurança: evita que o app fique travado em loading se o Firestore demorar
+    if (initialLoadTimeout) clearTimeout(initialLoadTimeout);
+    initialLoadTimeout = setTimeout(() => {
+      if (isLoadingTasks) {
+        isLoadingTasks = false;
+        if (typeof App !== 'undefined' && typeof App.refresh === 'function') {
+          App.refresh();
+        }
+      }
+    }, 3000);
+
     unsubscribeTasks = TaskService.subscribeTasks(
       (docs) => {
+        if (initialLoadTimeout) {
+          clearTimeout(initialLoadTimeout);
+          initialLoadTimeout = null;
+        }
         tasksList = docs.map(normalizeTask);
         isLoadingTasks = false;
         loadError = null;
@@ -113,13 +130,17 @@ const Tasks = (() => {
         }
       },
       (error) => {
+        if (initialLoadTimeout) {
+          clearTimeout(initialLoadTimeout);
+          initialLoadTimeout = null;
+        }
         isLoadingTasks = false;
         loadError = error.message || 'Unable to connect to Firestore.';
         console.error('Task synchronization error:', error);
         if (typeof App !== 'undefined' && typeof App.refresh === 'function') {
           App.refresh();
         }
-        toast('Firestore error: ' + loadError, 'danger');
+        toast('Firestore: ' + loadError, 'danger');
       }
     );
   };

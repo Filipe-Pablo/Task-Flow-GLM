@@ -1,11 +1,508 @@
-/* ============ TASKFLOW — APP (navigation, views, wiring) ============ */
-import { Tasks } from "./tasks.js";
+/**
+ * ============================================================================
+ * TaskFlow — Main Application & Authentication Controller (Vanilla JS)
+ * ============================================================================
+ * Responsável por:
+ * 1. Inicialização e interação da interface com os serviços de autenticação
+ *    (Login, Cadastro, Recuperação de Senha, Verificação de E-mail, Atualização de Senha).
+ * 2. Integração fluida com o software TaskFlow (Dashboard, Tarefas, Perfil, Categorias),
+ *    preservando 100% das funcionalidades do software pronto.
+ *
+ * Tecnologias: JavaScript puro moderno (ES6+, ES Modules), sem frameworks ou libs externas.
+ */
 
-/* ---------- Inline SVG icon set (assets/icons mirrored) ---------- */
-const svg = (d, extra = '') =>
+import { authService } from "./auth-service.js";
+import { getAuthErrorMessage, isTooManyRequestsError } from "./auth-errors.js";
+
+/* ==========================================================================
+   SEÇÃO 1: CONTROLADORES DE INTERFACE DE AUTENTICAÇÃO (Auth UI)
+   ========================================================================== */
+
+/**
+ * Exibe alertas dinâmicos com acessibilidade na área dedicada da página de autenticação.
+ * @param {string} message Mensagem a ser exibida
+ * @param {'danger'|'success'|'info'} type Tipo do alerta
+ */
+export function showAuthAlert(message, type = "danger") {
+  const alertArea = document.getElementById("authAlertArea");
+  if (!alertArea) return;
+
+  const iconSvg =
+    type === "success"
+      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>`
+      : type === "info"
+      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+
+  alertArea.innerHTML = `
+    <div class="auth-alert auth-alert--${type}" role="alert">
+      <span class="auth-alert__icon">${iconSvg}</span>
+      <div class="auth-alert__content">${message}</div>
+    </div>
+  `;
+}
+
+/**
+ * Limpa a área de alertas.
+ */
+export function clearAuthAlert() {
+  const alertArea = document.getElementById("authAlertArea");
+  if (alertArea) alertArea.innerHTML = "";
+}
+
+/**
+ * Controla o estado de carregamento e desabilitação de botões para impedir cliques múltiplos.
+ * @param {HTMLButtonElement} button
+ * @param {boolean} isLoading
+ * @param {string} loadingText
+ */
+export function setButtonLoading(button, isLoading, loadingText = "Processando...") {
+  if (!button) return;
+  button.disabled = isLoading;
+
+  if (isLoading) {
+    button.dataset.originalHtml = button.innerHTML;
+    button.innerHTML = `<span class="spinner" aria-hidden="true"></span> <span>${loadingText}</span>`;
+  } else if (button.dataset.originalHtml) {
+    button.innerHTML = button.dataset.originalHtml;
+  }
+}
+
+/**
+ * Configura botões de exibição/ocultação de senha (show/hide toggle).
+ */
+function initPasswordToggles() {
+  document.querySelectorAll("[data-toggle-target]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const targetId = button.getAttribute("data-toggle-target");
+      const input = document.getElementById(targetId);
+      if (!input) return;
+
+      const isPassword = input.type === "password";
+      input.type = isPassword ? "text" : "password";
+      button.setAttribute("aria-label", isPassword ? "Ocultar senha" : "Exibir senha");
+
+      button.innerHTML = isPassword
+        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/>
+            <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/>
+            <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>
+            <line x1="2" x2="22" y1="2" y2="22"/>
+          </svg>`
+        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>`;
+    });
+  });
+}
+
+/**
+ * Inicializa validação visual dinâmica em tempo real dos requisitos de senha.
+ * @param {string} passwordInputId
+ * @param {string|null} confirmInputId
+ */
+function initPasswordChecklist(passwordInputId, confirmInputId = null) {
+  const pwdInput = document.getElementById(passwordInputId);
+  const confirmInput = confirmInputId ? document.getElementById(confirmInputId) : null;
+  const checklist = document.getElementById("passwordRequirements");
+
+  if (!pwdInput || !checklist) return;
+
+  const reqMinLength = document.getElementById("reqMinLength");
+  const reqLetter = document.getElementById("reqLetter");
+  const reqNumber = document.getElementById("reqNumber");
+  const reqMatch = document.getElementById("reqMatch");
+
+  const validate = () => {
+    const password = pwdInput.value;
+    const confirm = confirmInput ? confirmInput.value : null;
+    const res = authService.validatePassword(password, confirm);
+
+    if (reqMinLength) reqMinLength.classList.toggle("valid", res.hasMinLength);
+    if (reqLetter) reqLetter.classList.toggle("valid", res.hasLetter);
+    if (reqNumber) reqNumber.classList.toggle("valid", res.hasNumber);
+    if (reqMatch && confirmInput) {
+      reqMatch.classList.toggle("valid", Boolean(confirm && confirm.length > 0 && res.passwordsMatch));
+    }
+  };
+
+  pwdInput.addEventListener("input", validate);
+  if (confirmInput) {
+    confirmInput.addEventListener("input", validate);
+  }
+}
+
+/**
+ * Gerenciador de cooldown (controle de frequência para reenvio e recuperação).
+ * @param {HTMLButtonElement} button
+ * @param {HTMLElement} noticeElement
+ * @param {number} seconds
+ */
+function applyCooldown(button, noticeElement, seconds) {
+  let remaining = seconds;
+  button.disabled = true;
+
+  if (noticeElement) {
+    noticeElement.hidden = false;
+  }
+
+  const update = () => {
+    if (remaining <= 0) {
+      clearInterval(timer);
+      button.disabled = false;
+      if (noticeElement) {
+        noticeElement.textContent = "";
+        noticeElement.hidden = true;
+      }
+    } else {
+      if (noticeElement) {
+        noticeElement.textContent = `Aguarde ${remaining}s para realizar uma nova tentativa.`;
+      }
+      remaining--;
+    }
+  };
+
+  update();
+  const timer = setInterval(update, 1000);
+}
+
+/**
+ * 2.1 Cadastro de Usuário
+ */
+function initRegisterForm() {
+  const form = document.getElementById("registerForm");
+  if (!form) return;
+
+  initPasswordChecklist("registerPassword", "registerConfirmPassword");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearAuthAlert();
+
+    const email = document.getElementById("registerEmail")?.value.trim();
+    const password = document.getElementById("registerPassword")?.value;
+    const confirmPassword = document.getElementById("registerConfirmPassword")?.value;
+    const submitBtn = document.getElementById("btnRegisterSubmit");
+
+    if (!email || !password || !confirmPassword) {
+      showAuthAlert("Preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    if (!authService.validateEmail(email)) {
+      showAuthAlert("Informe um endereço de e-mail válido.");
+      return;
+    }
+
+    const validation = authService.validatePassword(password, confirmPassword);
+    if (!validation.isValid) {
+      if (!validation.passwordsMatch) {
+        showAuthAlert("As senhas informadas não são iguais.");
+      } else {
+        showAuthAlert("A senha não atende aos requisitos mínimos de segurança.");
+      }
+      return;
+    }
+
+    setButtonLoading(submitBtn, true, "Criando conta...");
+
+    try {
+      const result = await authService.register(email, password);
+      showAuthAlert(result.message, "success");
+
+      // Redireciona para verificação de e-mail após 1.5s
+      setTimeout(() => {
+        window.location.replace("verificar-email.html");
+      }, 1500);
+    } catch (error) {
+      setButtonLoading(submitBtn, false);
+      const friendlyMessage = getAuthErrorMessage(error);
+      showAuthAlert(friendlyMessage, "danger");
+    }
+  });
+}
+
+/**
+ * 2.2 Login de Usuário
+ */
+function initLoginForm() {
+  const form = document.getElementById("loginForm");
+  if (!form) return;
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearAuthAlert();
+
+    const email = document.getElementById("loginEmail")?.value.trim();
+    const password = document.getElementById("loginPassword")?.value;
+    const submitBtn = document.getElementById("btnLoginSubmit");
+
+    if (!email || !password) {
+      showAuthAlert("Preencha seu e-mail e senha.");
+      return;
+    }
+
+    if (!authService.validateEmail(email)) {
+      showAuthAlert("Informe um endereço de e-mail válido.");
+      return;
+    }
+
+    setButtonLoading(submitBtn, true, "Entrando...");
+
+    try {
+      const { isVerified } = await authService.login(email, password);
+
+      if (!isVerified) {
+        showAuthAlert("Seu e-mail ainda não foi verificado. Redirecionando para confirmação...", "info");
+        setTimeout(() => {
+          window.location.replace("verificar-email.html");
+        }, 1200);
+      } else {
+        showAuthAlert("Autenticação realizada com sucesso! Redirecionando...", "success");
+        setTimeout(() => {
+          window.location.replace("dashboard.html");
+        }, 800);
+      }
+    } catch (error) {
+      setButtonLoading(submitBtn, false);
+      const friendlyMessage = getAuthErrorMessage(error);
+      showAuthAlert(friendlyMessage, "danger");
+    }
+  });
+}
+
+/**
+ * 2.4 Verificação de E-mail
+ */
+function initEmailVerification() {
+  const checkBtn = document.getElementById("btnCheckVerification");
+  const resendBtn = document.getElementById("btnResendVerification");
+  const logoutBtn = document.getElementById("btnLogoutVerify");
+  const emailBadge = document.getElementById("userEmailBadge");
+  const cooldownNotice = document.getElementById("cooldownNotice");
+
+  if (!checkBtn && !resendBtn) return;
+
+  // Carregar e-mail do usuário autenticado no badge
+  authService.waitForAuthInit().then((user) => {
+    if (user && emailBadge) {
+      emailBadge.textContent = user.email || "seu e-mail";
+    }
+  });
+
+  // Botão: Verificar status atualizado via Firebase reload()
+  if (checkBtn) {
+    checkBtn.addEventListener("click", async () => {
+      clearAuthAlert();
+      setButtonLoading(checkBtn, true, "Verificando status...");
+
+      try {
+        const user = await authService.reloadUser();
+        if (user && user.emailVerified) {
+          showAuthAlert("E-mail confirmado com sucesso! Redirecionando para o aplicativo...", "success");
+          setTimeout(() => {
+            window.location.replace("dashboard.html");
+          }, 1000);
+        } else {
+          setButtonLoading(checkBtn, false);
+          showAuthAlert(
+            "Seu e-mail ainda não foi confirmado. Verifique sua caixa de entrada e spam e clique no link de ativação.",
+            "info"
+          );
+        }
+      } catch (error) {
+        setButtonLoading(checkBtn, false);
+        showAuthAlert(getAuthErrorMessage(error), "danger");
+      }
+    });
+  }
+
+  // Botão: Reenviar e-mail de verificação com controle de frequência (60s)
+  if (resendBtn) {
+    resendBtn.addEventListener("click", async () => {
+      clearAuthAlert();
+      setButtonLoading(resendBtn, true, "Enviando...");
+
+      try {
+        await authService.sendVerificationEmail();
+        setButtonLoading(resendBtn, false);
+        showAuthAlert("Novo e-mail de confirmação enviado! Verifique sua caixa de entrada.", "success");
+        applyCooldown(resendBtn, cooldownNotice, 60);
+      } catch (error) {
+        setButtonLoading(resendBtn, false);
+        showAuthAlert(getAuthErrorMessage(error), "danger");
+        if (isTooManyRequestsError(error)) {
+          applyCooldown(resendBtn, cooldownNotice, 60);
+        }
+      }
+    });
+  }
+
+  // Botão: Encerrar sessão
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", async () => {
+      await authService.logout();
+      window.location.replace("index.html");
+    });
+  }
+}
+
+/**
+ * 2.5 Recuperação de Senha
+ */
+function initPasswordResetForm() {
+  const form = document.getElementById("resetForm");
+  if (!form) return;
+
+  const submitBtn = document.getElementById("btnResetSubmit");
+  const cooldownNotice = document.getElementById("cooldownNotice");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearAuthAlert();
+
+    const email = document.getElementById("resetEmail")?.value.trim();
+
+    if (!email) {
+      showAuthAlert("Informe seu endereço de e-mail.");
+      return;
+    }
+
+    if (!authService.validateEmail(email)) {
+      showAuthAlert("Informe um endereço de e-mail válido.");
+      return;
+    }
+
+    setButtonLoading(submitBtn, true, "Enviando...");
+
+    try {
+      const result = await authService.sendPasswordReset(email);
+      setButtonLoading(submitBtn, false);
+
+      // Sempre exibe mensagem genérica de sucesso independente da existência da conta
+      showAuthAlert(result.message, "success");
+      applyCooldown(submitBtn, cooldownNotice, 60);
+    } catch (error) {
+      setButtonLoading(submitBtn, false);
+      showAuthAlert(getAuthErrorMessage(error), "danger");
+      if (isTooManyRequestsError(error)) {
+        applyCooldown(submitBtn, cooldownNotice, 60);
+      }
+    }
+  });
+}
+
+/**
+ * 2.6 Atualização de Senha
+ */
+function initUpdatePasswordForm() {
+  const form = document.getElementById("updatePasswordForm");
+  if (!form) return;
+
+  initPasswordChecklist("newPassword", "confirmNewPassword");
+
+  const submitBtn = document.getElementById("btnUpdatePasswordSubmit");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearAuthAlert();
+
+    const currentPassword = document.getElementById("currentPassword")?.value;
+    const newPassword = document.getElementById("newPassword")?.value;
+    const confirmNewPassword = document.getElementById("confirmNewPassword")?.value;
+
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+      showAuthAlert("Preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    const validation = authService.validatePassword(newPassword, confirmNewPassword);
+    if (!validation.isValid) {
+      if (!validation.passwordsMatch) {
+        showAuthAlert("A nova senha e a confirmação não coincidem.");
+      } else {
+        showAuthAlert("A nova senha não atende aos requisitos mínimos de segurança.");
+      }
+      return;
+    }
+
+    setButtonLoading(submitBtn, true, "Atualizando senha...");
+
+    try {
+      await authService.updateUserPassword(newPassword, currentPassword);
+      setButtonLoading(submitBtn, false);
+
+      showAuthAlert("Senha atualizada com sucesso!", "success");
+
+      // Limpar campos de senha
+      form.reset();
+      const checklist = document.getElementById("passwordRequirements");
+      if (checklist) {
+        checklist.querySelectorAll(".req-item").forEach((item) => item.classList.remove("valid"));
+      }
+
+      // Redireciona para o dashboard após 2s
+      setTimeout(() => {
+        window.location.replace("dashboard.html");
+      }, 2000);
+    } catch (error) {
+      setButtonLoading(submitBtn, false);
+      showAuthAlert(getAuthErrorMessage(error), "danger");
+    }
+  });
+}
+
+/* ==========================================================================
+   SEÇÃO 2: INTEGRAÇÃO COM O SOFTWARE PRONTO (TaskFlow App)
+   ========================================================================== */
+
+/**
+ * Inicialização e integração da barra lateral e perfil do TaskFlow com o Firebase Auth
+ */
+async function initTaskFlowAuthIntegration() {
+  const sidebarUserName = document.getElementById("sidebarUserName");
+  const sidebarUserEmail = document.getElementById("sidebarUserEmail");
+  const avatarSidebar = document.getElementById("avatarSidebar");
+  const avatarHeader = document.getElementById("avatarHeader");
+  const btnSidebarLogout = document.getElementById("btnSidebarLogout");
+
+  if (!sidebarUserName && !btnSidebarLogout) return;
+
+  const user = await authService.waitForAuthInit();
+  if (user) {
+    const userEmail = user.email || "usuário@taskflow.app";
+    const displayName = user.displayName || userEmail.split("@")[0];
+    const initials = displayName.slice(0, 2).toUpperCase();
+
+    if (sidebarUserName) sidebarUserName.textContent = displayName;
+    if (sidebarUserEmail) sidebarUserEmail.textContent = userEmail;
+    if (avatarSidebar) avatarSidebar.textContent = initials;
+    if (avatarHeader) avatarHeader.textContent = initials;
+  }
+
+  if (btnSidebarLogout) {
+    btnSidebarLogout.addEventListener("click", async () => {
+      try {
+        await authService.logout();
+        window.location.replace("index.html");
+      } catch (err) {
+        console.error("Erro ao encerrar sessão:", err);
+        window.location.replace("index.html");
+      }
+    });
+  }
+}
+
+/* ==========================================================================
+   SEÇÃO 3: TASKFLOW DASHBOARD WIRING (Views, Tarefas, Categorias, Modais)
+   ========================================================================== */
+
+// Mirror de ícones SVG estáticos do TaskFlow
+const svg = (d, extra = "") =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${extra}${d}</svg>`;
 
-window.ICONS = {
+window.ICONS = window.ICONS || {
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
   plusSm: svg('<path d="M12 5v14M5 12h14"/>'),
   x: svg('<path d="M18 6 6 18M6 6l12 12"/>'),
@@ -37,57 +534,78 @@ window.ICONS = {
   chart: svg('<path d="M3 3v18h18"/><path d="m7 15 4-5 3 3 5-7"/>')
 };
 
-const App = (() => {
+/**
+ * TaskFlow Dashboard Application Controller
+ */
+const TaskFlowApp = (() => {
   const VIEWS = {
     dashboard:  { title: 'Dashboard Overview' },
-    mytasks:    { title: 'My Tasks' },
-    today:      { title: 'Today' },
-    upcoming:   { title: 'Upcoming Tasks' },
-    completed:  { title: 'Completed' },
-    categories: { title: 'Categories' },
-    profile:    { title: 'Profile' },
-    settings:   { title: 'Settings' }
+    mytasks:    { title: 'Minhas Tarefas' },
+    today:      { title: 'Hoje' },
+    upcoming:   { title: 'Próximas Tarefas' },
+    completed:  { title: 'Concluídas' },
+    categories: { title: 'Categorias' },
+    profile:    { title: 'Perfil & Segurança' },
+    settings:   { title: 'Configurações' }
   };
 
   let currentView = 'dashboard';
+  let editingCategoryId = null;
 
-  /* ---------- profile / greeting ---------- */
   const greeting = () => {
     const h = new Date().getHours();
-    if (h < 12) return 'Good morning';
-    if (h < 18) return 'Good afternoon';
-    return 'Good evening';
+    if (h < 12) return 'Bom dia';
+    if (h < 18) return 'Boa tarde';
+    return 'Boa noite';
   };
 
   const initials = (name) =>
-    name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || 'TF';
+    name ? name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || 'TF' : 'TF';
 
   const syncProfile = () => {
+    if (typeof Storage === 'undefined') return;
     const p = Storage.getProfile();
-    document.getElementById('sidebarUserName').textContent = p.name;
-    document.getElementById('headerGreet').textContent = `${greeting()}, ${p.name.split(' ')[0]}`;
-    const init = initials(p.name);
-    document.getElementById('avatarSidebar').textContent = init;
-    document.getElementById('avatarHeader').textContent = init;
+    const currentUser = authService.getCurrentUser();
+    const displayName = currentUser?.displayName || p.name;
+    const email = currentUser?.email || p.email;
+
+    const sbName = document.getElementById('sidebarUserName');
+    if (sbName) sbName.textContent = displayName;
+
+    const sbEmail = document.getElementById('sidebarUserEmail');
+    if (sbEmail) sbEmail.textContent = email;
+
+    const greet = document.getElementById('headerGreet');
+    if (greet) greet.textContent = `${greeting()}, ${displayName.split(' ')[0]}`;
+
+    const init = initials(displayName);
+    const sbAvatar = document.getElementById('avatarSidebar');
+    if (sbAvatar) sbAvatar.textContent = init;
+
+    const hdAvatar = document.getElementById('avatarHeader');
+    if (hdAvatar) hdAvatar.textContent = init;
+
     const prof = document.getElementById('profileAvatar');
     if (prof) prof.textContent = init;
   };
 
-  /* ---------- sidebar categories & badges ---------- */
   const syncSidebar = () => {
+    if (typeof Storage === 'undefined' || typeof Tasks === 'undefined') return;
     const cats = Storage.getCategories();
     const tasks = Tasks.all();
     const wrap = document.getElementById('navCategories');
-    wrap.innerHTML = cats
-      .map((c) => {
-        const count = tasks.filter((t) => t.category === c.id && t.status !== 'completed').length;
-        return `<a href="#categories" class="nav-cat" data-action="filter-cat" data-id="${c.id}">
-          <span class="cat-dot" style="background:${c.color}"></span>
-          <span>${Tasks.escapeHTML(c.name)}</span>
-          <span class="nav-badge" style="margin-left:auto">${count}</span>
-        </a>`;
-      })
-      .join('');
+    if (wrap) {
+      wrap.innerHTML = cats
+        .map((c) => {
+          const count = tasks.filter((t) => t.category === c.id && t.status !== 'completed').length;
+          return `<a href="#categories" class="nav-cat" data-action="filter-cat" data-id="${c.id}">
+            <span class="cat-dot" style="background:${c.color}"></span>
+            <span>${Tasks.escapeHTML(c.name)}</span>
+            <span class="nav-badge" style="margin-left:auto">${count}</span>
+          </a>`;
+        })
+        .join('');
+    }
 
     const open = tasks.filter((t) => t.status !== 'completed');
     const badges = {
@@ -101,12 +619,11 @@ const App = (() => {
       if (v !== undefined) el.textContent = v;
     });
 
-    // notification dot: overdue or due today
     const urgent = badges.today > 0;
-    document.getElementById('notifDot').hidden = !urgent;
+    const dot = document.getElementById('notifDot');
+    if (dot) dot.hidden = !urgent;
   };
 
-  /* ---------- navigation ---------- */
   const navigate = (view, opts = {}) => {
     if (!VIEWS[view]) view = 'dashboard';
     currentView = view;
@@ -115,12 +632,15 @@ const App = (() => {
     document.querySelectorAll('.nav-item').forEach((n) =>
       n.classList.toggle('active', n.dataset.view === view));
 
-    document.getElementById('pageTitle').textContent = VIEWS[view].title;
+    const pageTitle = document.getElementById('pageTitle');
+    if (pageTitle) pageTitle.textContent = VIEWS[view].title;
 
     const content = document.getElementById('appContent');
-    content.innerHTML = RENDERERS[view](opts);
-    wireView(content);
-    content.scrollTop = 0;
+    if (content && RENDERERS[view]) {
+      content.innerHTML = RENDERERS[view](opts);
+      wireView(content);
+      content.scrollTop = 0;
+    }
   };
 
   const refresh = () => {
@@ -129,7 +649,14 @@ const App = (() => {
     navigate(currentView, { keep: true });
   };
 
-  /* ================= VIEW RENDERERS ================= */
+  const rerenderView = () => {
+    const content = document.getElementById('appContent');
+    if (content && RENDERERS[currentView]) {
+      content.innerHTML = RENDERERS[currentView]();
+      wireView(content);
+    }
+  };
+
   const statCard = (label, value, icon, variant, footer) => `
     <div class="stat-card">
       <div class="stat-card__top">
@@ -142,19 +669,16 @@ const App = (() => {
 
   const RENDERERS = {
     dashboard() {
+      if (typeof Tasks === 'undefined' || typeof Storage === 'undefined') return '';
       const tasks = Tasks.all();
       const open = tasks.filter((t) => t.status !== 'completed');
       const done = tasks.filter((t) => t.status === 'completed');
       const overdue = tasks.filter(Tasks.isOverdue);
       const dueToday = open.filter((t) => Tasks.isToday(t));
       const pct = tasks.length ? Math.round((done.length / tasks.length) * 100) : 0;
-      const addedWeek = tasks.filter(
-        (t) => t.createdAt && Tasks.daysBetween(t.createdAt) >= -7
-      ).length;
+      const addedWeek = tasks.filter((t) => t.createdAt && Tasks.daysBetween(t.createdAt) >= -7).length;
       const urgent = overdue.length + dueToday.length;
-      const today = new Date().toLocaleDateString('en-US', {
-        weekday: 'long', month: 'long', day: 'numeric'
-      });
+      const today = new Date().toLocaleDateString('pt-BR', { weekday: 'long', month: 'long', day: 'numeric' });
 
       const ring = `
         <svg width="52" height="52" viewBox="0 0 52 52">
@@ -168,70 +692,71 @@ const App = (() => {
         .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
         .slice(0, 5);
 
-      // productivity summary per category
       const cats = Storage.getCategories().map((c) => {
         const all = tasks.filter((t) => t.category === c.id);
         const ok = all.filter((t) => t.status === 'completed').length;
         return { ...c, total: all.length, done: ok, pct: all.length ? Math.round((ok / all.length) * 100) : 0 };
       }).filter((c) => c.total > 0);
 
+      const userName = authService.getCurrentUser()?.displayName || Storage.getProfile().name;
+
       return `
         <section class="welcome-banner">
           <div class="welcome-banner__main">
-            <span class="welcome-banner__tag">Active Workspace</span>
-            <h2>${greeting()}, ${Storage.getProfile().name.split(' ')[0]}!</h2>
-            <p class="welcome-banner__sub">${today} — Here's what's happening with your tasks today.
-              You have <strong>${urgent} urgent ${urgent === 1 ? 'deadline' : 'deadlines'}</strong> and your
-              completion rate is <strong>${pct}%</strong>.</p>
+            <span class="welcome-banner__tag">Espaço de Trabalho Ativo</span>
+            <h2>${greeting()}, ${userName.split(' ')[0]}!</h2>
+            <p class="welcome-banner__sub">${today} — Aqui está o resumo das suas tarefas.
+              Você possui <strong>${urgent} ${urgent === 1 ? 'prazo urgente' : 'prazos urgentes'}</strong> e sua
+              taxa de conclusão está em <strong>${pct}%</strong>.</p>
           </div>
           <div class="welcome-banner__extra" style="display:flex;align-items:center;gap:14px">
             <div class="velocity">
               <div>
-                <div class="velocity__label">Completion</div>
+                <div class="velocity__label">Conclusão</div>
                 <div class="velocity__value">${done.length}/${tasks.length}</div>
               </div>
               <div class="velocity__ring">${ring}</div>
             </div>
-            <button class="btn btn--primary" data-action="open-create">${ICONS.plus} New Task</button>
+            <button class="btn btn--primary" data-action="open-create">${window.ICONS.plus} Nova Tarefa</button>
           </div>
         </section>
 
         <div class="stats-grid">
-          ${statCard('Total Tasks', tasks.length, ICONS.tasks, 'primary',
-            `<span class="stat-note"><strong>+${addedWeek}</strong> added this week</span>`)}
-          ${statCard('Completed', done.length, ICONS['check-circle'], 'success',
+          ${statCard('Total de Tarefas', tasks.length, window.ICONS.tasks, 'primary',
+            `<span class="stat-note"><strong>+${addedWeek}</strong> adicionadas nesta semana</span>`)}
+          ${statCard('Concluídas', done.length, window.ICONS['check-circle'], 'success',
             `<span class="progress"><span class="progress__bar progress__bar--success" style="width:${pct}%"></span></span>
              <span class="stat-note">${pct}%</span>`)}
-          ${statCard('In Progress', tasks.filter((t) => t.status === 'inprogress').length, ICONS.clock, 'warning',
-            `<span class="stat-note">${dueToday.length} due today</span>`)}
-          ${statCard('Overdue', overdue.length, ICONS.alert, 'danger',
-            `<span class="stat-note">${overdue.length ? 'Requires immediate action' : 'All caught up!'}</span>`)}
+          ${statCard('Em Andamento', tasks.filter((t) => t.status === 'inprogress').length, window.ICONS.clock, 'warning',
+            `<span class="stat-note">${dueToday.length} para hoje</span>`)}
+          ${statCard('Atrasadas', overdue.length, window.ICONS.alert, 'danger',
+            `<span class="stat-note">${overdue.length ? 'Atenção imediata' : 'Tudo em dia!'}</span>`)}
         </div>
 
         <div class="panel" style="margin-bottom:16px">
           <div class="view-head" style="margin-bottom:12px">
-            <h2 style="font-size:15px">Productivity Summary</h2>
-            <span class="stat-note">${pct}% of all tasks completed</span>
+            <h2 style="font-size:15px">Resumo por Categoria</h2>
+            <span class="stat-note">${pct}% das tarefas concluídas</span>
           </div>
           ${cats.length ? cats.map((c) => `
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
               <span class="cat-dot" style="background:${c.color}"></span>
-              <span style="width:90px;font-weight:600;font-size:13px">${Tasks.escapeHTML(c.name)}</span>
+              <span style="width:110px;font-weight:600;font-size:13px">${Tasks.escapeHTML(c.name)}</span>
               <span class="progress"><span class="progress__bar" style="width:${c.pct}%"></span></span>
               <span class="stat-note" style="width:64px;text-align:right">${c.done}/${c.total}</span>
             </div>`).join('')
-          : '<p class="stat-note">No category data yet.</p>'}
+          : '<p class="stat-note">Nenhuma categoria com tarefas no momento.</p>'}
         </div>
 
         <div class="panel">
           <div class="view-head" style="margin-bottom:12px">
-            <h2 style="font-size:15px">Recent Tasks</h2>
-            <button class="btn btn--ghost btn--sm" data-nav="mytasks">View all</button>
+            <h2 style="font-size:15px">Tarefas Recentes</h2>
+            <button class="btn btn--ghost btn--sm" data-nav="mytasks">Ver todas</button>
           </div>
           ${Tasks.renderList(recent, {
             mode: Filters.state.view,
-            emptyTitle: 'No tasks yet',
-            emptyText: 'Click “New Task” to create your first task.'
+            emptyTitle: 'Nenhuma tarefa ainda',
+            emptyText: 'Clique em "Nova Tarefa" para começar.'
           })}
         </div>`;
     },
@@ -249,50 +774,50 @@ const App = (() => {
       return `
         <div class="toolbar">
           <div class="toolbar__title">
-            <h3>${ICONS.list} Tasks</h3>
-            <span class="badge badge--primary">${counts.all - counts.completed} pending</span>
+            <h3>${window.ICONS.list} Tarefas</h3>
+            <span class="badge badge--primary">${counts.all - counts.completed} pendentes</span>
           </div>
           <div class="search-box">
-            <span class="search-box__icon">${ICONS.search}</span>
-            <input type="search" id="localSearch" class="search-box__input" placeholder="Search tasks..." value="${Tasks.escapeHTML(f.search)}">
+            <span class="search-box__icon">${window.ICONS.search}</span>
+            <input type="search" id="localSearch" class="search-box__input" placeholder="Pesquisar tarefas..." value="${Tasks.escapeHTML(f.search)}">
           </div>
-          <select class="select-inline" id="sortSelect" aria-label="Sort by">
-            <option value="duedate" ${f.sort === 'duedate' ? 'selected' : ''}>Sort: Due Date</option>
-            <option value="priority" ${f.sort === 'priority' ? 'selected' : ''}>Sort: Priority</option>
-            <option value="created" ${f.sort === 'created' ? 'selected' : ''}>Sort: Recently added</option>
-            <option value="title" ${f.sort === 'title' ? 'selected' : ''}>Sort: Title</option>
+          <select class="select-inline" id="sortSelect" aria-label="Ordenar por">
+            <option value="duedate" ${f.sort === 'duedate' ? 'selected' : ''}>Ordenar: Data de Entrega</option>
+            <option value="priority" ${f.sort === 'priority' ? 'selected' : ''}>Ordenar: Prioridade</option>
+            <option value="created" ${f.sort === 'created' ? 'selected' : ''}>Ordenar: Adicionadas Recentemente</option>
+            <option value="title" ${f.sort === 'title' ? 'selected' : ''}>Ordenar: Título</option>
           </select>
-          <div class="view-toggle" role="group" aria-label="View mode">
-            <button data-viewmode="list" class="${f.view === 'list' ? 'active' : ''}" aria-label="List view">${ICONS.list}</button>
-            <button data-viewmode="cards" class="${f.view === 'cards' ? 'active' : ''}" aria-label="Cards view">${ICONS.grid}</button>
+          <div class="view-toggle" role="group" aria-label="Modo de visualização">
+            <button data-viewmode="list" class="${f.view === 'list' ? 'active' : ''}" aria-label="Visualização em Lista">${window.ICONS.list}</button>
+            <button data-viewmode="cards" class="${f.view === 'cards' ? 'active' : ''}" aria-label="Visualização em Cartões">${window.ICONS.grid}</button>
           </div>
         </div>
 
         <div class="toolbar">
           <div class="chips">
-            ${chip('all', 'All')}
-            ${chip('todo', 'To Do')}
-            ${chip('inprogress', 'In Progress')}
-            ${chip('completed', 'Completed')}
+            ${chip('all', 'Todas')}
+            ${chip('todo', 'A Fazer')}
+            ${chip('inprogress', 'Em Andamento')}
+            ${chip('completed', 'Concluídas')}
           </div>
           <span style="flex:1"></span>
           <div class="chips-tags">
-            <span class="chips-label">PRIORITY</span>
-            <select class="select-inline" id="priorityFilter" aria-label="Filter by priority">
-              <option value="all" ${f.priority === 'all' ? 'selected' : ''}>All</option>
-              <option value="low" ${f.priority === 'low' ? 'selected' : ''}>Low</option>
-              <option value="medium" ${f.priority === 'medium' ? 'selected' : ''}>Medium</option>
-              <option value="high" ${f.priority === 'high' ? 'selected' : ''}>High</option>
+            <span class="chips-label">PRIORIDADE</span>
+            <select class="select-inline" id="priorityFilter" aria-label="Filtrar por prioridade">
+              <option value="all" ${f.priority === 'all' ? 'selected' : ''}>Todas</option>
+              <option value="low" ${f.priority === 'low' ? 'selected' : ''}>Baixa</option>
+              <option value="medium" ${f.priority === 'medium' ? 'selected' : ''}>Média</option>
+              <option value="high" ${f.priority === 'high' ? 'selected' : ''}>Alta</option>
             </select>
-            <span class="chips-label">CATEGORY</span>
-            <select class="select-inline" id="categoryFilter" aria-label="Filter by category">
-              <option value="all" ${f.category === 'all' ? 'selected' : ''}>All</option>
+            <span class="chips-label">CATEGORIA</span>
+            <select class="select-inline" id="categoryFilter" aria-label="Filtrar por categoria">
+              <option value="all" ${f.category === 'all' ? 'selected' : ''}>Todas</option>
               ${cats.map((c) => `<option value="${c.id}" ${f.category === c.id ? 'selected' : ''}>${Tasks.escapeHTML(c.name)}</option>`).join('')}
             </select>
           </div>
         </div>
 
-        ${Tasks.renderList(filtered, { emptyTitle: 'No tasks found', emptyText: 'Try adjusting filters or create a new task.' })}`;
+        ${Tasks.renderList(filtered, { emptyTitle: 'Nenhuma tarefa encontrada', emptyText: 'Tente ajustar os filtros ou criar uma nova tarefa.' })}`;
     },
 
     today() {
@@ -309,34 +834,34 @@ const App = (() => {
         <div class="panel" style="margin-bottom:16px">
           <div class="view-head" style="margin-bottom:10px">
             <div>
-              <h2 style="font-size:15px">Daily Progress</h2>
-              <p>${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+              <h2 style="font-size:15px">Progresso Diário</h2>
+              <p>${new Date().toLocaleDateString('pt-BR', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
             </div>
-            <span class="badge badge--primary">${pct}% complete</span>
+            <span class="badge badge--primary">${pct}% concluído</span>
           </div>
           <div class="progress" style="height:9px">
             <span class="progress__bar ${pct >= 100 ? 'progress__bar--success' : ''}" style="width:${pct}%"></span>
           </div>
-          <p class="stat-note" style="margin-top:8px">${doneToday} completed today · ${total} remaining</p>
+          <p class="stat-note" style="margin-top:8px">${doneToday} concluídas hoje · ${total} restantes</p>
         </div>
 
         ${overdue.length ? `
-          <h4 class="group-title"><span class="badge badge--danger">${overdue.length} overdue</span> Overdue</h4>
+          <h4 class="group-title"><span class="badge badge--danger">${overdue.length} atrasadas</span> Atrasadas</h4>
           ${Tasks.renderList(overdue, { emptyTitle: '', emptyText: '' })}` : ''}
-        <h4 class="group-title"><span class="badge badge--primary">${dueToday.length}</span> Due Today</h4>
-        ${Tasks.renderList(dueToday, { emptyTitle: 'Nothing due today', emptyText: 'Enjoy the free day or check upcoming tasks.' })}`;
+        <h4 class="group-title"><span class="badge badge--primary">${dueToday.length}</span> Para Hoje</h4>
+        ${Tasks.renderList(dueToday, { emptyTitle: 'Nada agendado para hoje', emptyText: 'Aproveite seu dia ou veja tarefas futuras.' })}`;
     },
 
     upcoming() {
       const open = Tasks.all().filter(
         (t) => t.status !== 'completed' && t.dueDate && Tasks.daysBetween(t.dueDate) > 0
       );
-      const groups = { 'Tomorrow': [], 'This Week': [], 'Later': [] };
+      const groups = { 'Amanhã': [], 'Esta Semana': [], 'Mais Tarde': [] };
       open.forEach((t) => {
         const d = Tasks.daysBetween(t.dueDate);
-        if (d === 1) groups['Tomorrow'].push(t);
-        else if (d <= 7) groups['This Week'].push(t);
-        else groups['Later'].push(t);
+        if (d === 1) groups['Amanhã'].push(t);
+        else if (d <= 7) groups['Esta Semana'].push(t);
+        else groups['Mais Tarde'].push(t);
       });
 
       const html = Object.entries(groups)
@@ -346,7 +871,7 @@ const App = (() => {
           ${Tasks.renderList(list)}`)
         .join('');
 
-      return html || Tasks.emptyState('No upcoming tasks', 'Tasks with future due dates will appear here.');
+      return html || Tasks.emptyState('Nenhuma tarefa próxima', 'Tarefas com prazos futuros aparecerão aqui.');
     },
 
     completed() {
@@ -356,11 +881,11 @@ const App = (() => {
       return `
         <div class="toolbar">
           <div class="toolbar__title">
-            <h3>${ICONS['check-circle']} History</h3>
-            <span class="badge badge--success">${done.length} completed</span>
+            <h3>${window.ICONS['check-circle']} Histórico de Tarefas</h3>
+            <span class="badge badge--success">${done.length} concluídas</span>
           </div>
         </div>
-        ${Tasks.renderList(done, { emptyTitle: 'No completed tasks', emptyText: 'Completed tasks will show up here with their completion date.' })}`;
+        ${Tasks.renderList(done, { emptyTitle: 'Nenhuma tarefa concluída', emptyText: 'Tarefas concluídas aparecerão aqui com a data de conclusão.' })}`;
     },
 
     categories() {
@@ -369,27 +894,27 @@ const App = (() => {
       return `
         <div class="view-head">
           <div>
-            <h2>Categories</h2>
-            <p>Organize your tasks by area of work.</p>
+            <h2>Categorias</h2>
+            <p>Organize suas tarefas por projeto ou contexto.</p>
           </div>
-          <button class="btn btn--primary" data-action="new-category">${ICONS.plusSm} New Category</button>
+          <button class="btn btn--primary" data-action="new-category">${window.ICONS.plusSm} Nova Categoria</button>
         </div>
 
         <div class="panel" id="categoryFormPanel" hidden style="margin-bottom:16px">
           <div class="field" style="margin-bottom:10px">
-            <label class="field__label" for="catNameInput">Category Name</label>
-            <input class="input" id="catNameInput" maxlength="24" placeholder="e.g. Marketing">
+            <label class="field__label" for="catNameInput">Nome da Categoria</label>
+            <input class="input" id="catNameInput" maxlength="24" placeholder="Ex: Engenharia">
           </div>
           <div class="field" style="margin-bottom:14px">
-            <span class="field__label">Color</span>
+            <span class="field__label">Cor</span>
             <div class="color-options" id="catColorOptions">
               ${['#7C5CFC', '#2ECC71', '#F4B740', '#F16C6C', '#4BA3F4', '#F07CB4'].map((c, i) =>
-                `<button type="button" class="color-option ${i === 0 ? 'selected' : ''}" style="background:${c}" data-color="${c}" aria-label="Color ${c}"></button>`).join('')}
+                `<button type="button" class="color-option ${i === 0 ? 'selected' : ''}" style="background:${c}" data-color="${c}" aria-label="Cor ${c}"></button>`).join('')}
             </div>
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button class="btn btn--ghost" data-action="cancel-category">Cancel</button>
-            <button class="btn btn--primary" data-action="save-category">${ICONS.plusSm} Create Category</button>
+            <button class="btn btn--ghost" data-action="cancel-category">Cancelar</button>
+            <button class="btn btn--primary" data-action="save-category">${window.ICONS.plusSm} Salvar Categoria</button>
           </div>
         </div>
 
@@ -399,269 +924,245 @@ const App = (() => {
             const open = all.filter((t) => t.status !== 'completed').length;
             const pct = all.length ? Math.round(((all.length - open) / all.length) * 100) : 0;
             return `
-            <div class="cat-card" data-id="${c.id}">
-              <div class="cat-card__head">
-                <span class="cat-card__name"><span class="cat-dot" style="background:${c.color}"></span>${Tasks.escapeHTML(c.name)}</span>
-                <span class="cat-card__actions">
-                  <button class="task-action" data-action="edit-category" data-id="${c.id}" aria-label="Edit category">${ICONS.pencil}</button>
-                  <button class="task-action task-action--danger" data-action="delete-category" data-id="${c.id}" aria-label="Delete category">${ICONS.trash}</button>
-                </span>
-              </div>
-              <div class="progress"><span class="progress__bar" style="width:${pct}%"></span></div>
-              <div class="cat-card__footer">
-                <span>${all.length} task${all.length === 1 ? '' : 's'} · ${open} open</span>
-                <button class="btn btn--ghost btn--sm" data-action="filter-cat" data-id="${c.id}">View tasks</button>
-              </div>
-            </div>`;
+              <div class="cat-card">
+                <div class="cat-card__header">
+                  <span class="cat-dot" style="background:${c.color};width:12px;height:12px"></span>
+                  <h3 class="cat-card__title">${Tasks.escapeHTML(c.name)}</h3>
+                  <div class="cat-card__actions">
+                    <button class="icon-btn icon-btn--sm" data-action="edit-category" data-id="${c.id}" aria-label="Editar categoria">${window.ICONS.pencil}</button>
+                    <button class="icon-btn icon-btn--sm link-danger" data-action="delete-category" data-id="${c.id}" aria-label="Excluir categoria">${window.ICONS.trash}</button>
+                  </div>
+                </div>
+                <div class="cat-card__meta">${open} tarefas abertas · ${all.length} total</div>
+                <div class="progress" style="margin-top:12px">
+                  <span class="progress__bar" style="width:${pct}%;background:${c.color}"></span>
+                </div>
+              </div>`;
           }).join('')}
-        </div>
-        ${cats.length === 0 ? Tasks.emptyState('No categories', 'Create your first category to organize tasks.') : ''}`;
+        </div>`;
     },
 
     profile() {
       const p = Storage.getProfile();
+      const currentUser = authService.getCurrentUser();
+      const email = currentUser?.email || p.email;
+      const displayName = currentUser?.displayName || p.name;
+      const isVerified = currentUser?.emailVerified;
       const tasks = Tasks.all();
       const done = tasks.filter((t) => t.status === 'completed').length;
+
       return `
         <div class="profile-card">
           <div class="profile-head">
-            <span class="avatar" id="profileAvatar">${initials(p.name)}</span>
+            <span class="avatar" id="profileAvatar">${initials(displayName)}</span>
             <div>
-              <h3>${Tasks.escapeHTML(p.name)}</h3>
+              <h3>${Tasks.escapeHTML(displayName)}</h3>
               <p>${Tasks.escapeHTML(p.role)}</p>
             </div>
           </div>
+
           <div class="stats-grid" style="margin-bottom:22px;grid-template-columns:repeat(2,1fr)">
-            ${statCard('Total Tasks', tasks.length, ICONS.tasks, 'primary', '')}
-            ${statCard('Completed', done, ICONS['check-circle'], 'success', '')}
+            ${statCard('Total de Tarefas', tasks.length, window.ICONS.tasks, 'primary', '')}
+            ${statCard('Tarefas Concluídas', done, window.ICONS['check-circle'], 'success', '')}
+          </div>
+
+          <!-- Seção de Segurança do Firebase Authentication -->
+          <div class="panel" style="margin-bottom:20px; background:var(--secondary);">
+            <h4 style="margin-bottom:12px; font-size:14px; display:flex; align-items:center; gap:8px;">
+              <span>Segurança da Conta (Firebase Auth)</span>
+              ${isVerified ? '<span class="badge badge--success">E-mail Verificado</span>' : '<span class="badge badge--warning">Verificação Pendente</span>'}
+            </h4>
+            <div style="font-size:13px; color:var(--text-2); margin-bottom:14px;">
+              Autenticado como: <strong>${Tasks.escapeHTML(email)}</strong>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <a href="atualizar-senha.html" class="btn btn--primary btn--sm" style="display:inline-flex; align-items:center; gap:6px;">
+                ${window.ICONS.settings} Alterar Senha
+              </a>
+              <button class="btn btn--ghost btn--sm" id="btnProfileLogout" style="color:var(--danger);">
+                ${window.ICONS.x} Encerrar Sessão
+              </button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="profileName">Nome de Exibição</label>
+            <input class="input" id="profileName" value="${Tasks.escapeHTML(displayName)}" maxlength="40">
           </div>
           <div class="field">
-            <label class="field__label" for="profileName">Name</label>
-            <input class="input" id="profileName" value="${Tasks.escapeHTML(p.name)}" maxlength="40">
+            <label class="field__label" for="profileEmail">E-mail Cadastrado</label>
+            <input class="input" id="profileEmail" type="email" value="${Tasks.escapeHTML(email)}" maxlength="60" readonly style="opacity:0.8; cursor:not-allowed;">
           </div>
           <div class="field">
-            <label class="field__label" for="profileEmail">E-mail</label>
-            <input class="input" id="profileEmail" type="email" value="${Tasks.escapeHTML(p.email)}" maxlength="60">
-          </div>
-          <div class="field">
-            <label class="field__label" for="profileRole">Role</label>
+            <label class="field__label" for="profileRole">Cargo ou Função</label>
             <input class="input" id="profileRole" value="${Tasks.escapeHTML(p.role)}" maxlength="40">
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
-            <button class="btn btn--primary" data-action="save-profile">${ICONS.check} Save Changes</button>
+            <button class="btn btn--primary" data-action="save-profile">${window.ICONS.check} Salvar Alterações</button>
           </div>
         </div>`;
     },
 
     settings() {
-      const prefs = Storage.getPrefs();
-      const t = Theme.get();
+      const t = typeof Theme !== 'undefined' ? Theme.get() : 'dark';
       return `
         <div class="settings-card">
-          <h3>Appearance</h3>
-          <p>Choose the theme for the interface.</p>
+          <h3>Aparência</h3>
+          <p>Selecione o tema para a interface.</p>
           <div class="theme-cards">
             <button class="theme-card ${t === 'dark' ? 'active' : ''}" data-theme="dark" data-action="set-theme">
               <span class="theme-preview theme-preview--dark"><span></span><span></span><span></span></span>
-              <span class="theme-card__label">${ICONS.moon} Dark Mode</span>
+              <span class="theme-card__label">${window.ICONS.moon} Modo Escuro</span>
             </button>
             <button class="theme-card ${t === 'light' ? 'active' : ''}" data-theme="light" data-action="set-theme">
               <span class="theme-preview theme-preview--light"><span></span><span></span><span></span></span>
-              <span class="theme-card__label">${ICONS.sun} Light Mode</span>
+              <span class="theme-card__label">${window.ICONS.sun} Modo Claro</span>
             </button>
-          </div>
-        </div>
-
-        <div class="settings-card">
-          <h3>Preferences</h3>
-          <p>Default behavior for task views.</p>
-          <div class="setting-row">
-            <div class="setting-row__info">
-              <strong>Default view mode</strong>
-              <span>How task lists are displayed.</span>
-            </div>
-            <select class="select-inline" id="prefViewMode" aria-label="Default view mode">
-              <option value="list" ${prefs.viewMode === 'list' ? 'selected' : ''}>List</option>
-              <option value="cards" ${prefs.viewMode === 'cards' ? 'selected' : ''}>Cards</option>
-            </select>
-          </div>
-          <div class="setting-row">
-            <div class="setting-row__info">
-              <strong>Notifications</strong>
-              <span>Show toast notifications for actions.</span>
-            </div>
-            <button class="switch ${prefs.notifications ? 'on' : ''}" id="prefNotifications" role="switch"
-              aria-checked="${prefs.notifications}" aria-label="Toggle notifications" data-action="toggle-notif-pref"></button>
           </div>
         </div>`;
     }
   };
 
-  /* ================= PER-VIEW EVENT WIRING ================= */
-  const wireView = (content) => {
-    // local search (My Tasks)
-    const local = content.querySelector('#localSearch');
-    if (local) {
-      local.addEventListener('input', () => {
-        Filters.state.search = local.value;
-        const input = document.getElementById('globalSearch');
-        if (input) input.value = local.value;
+  const wireView = (container) => {
+    const sort = container.querySelector('#sortSelect');
+    if (sort) {
+      sort.addEventListener('change', () => {
+        Filters.state.sort = sort.value;
         rerenderView();
-        const again = document.getElementById('localSearch');
-        if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
       });
     }
-    const sort = content.querySelector('#sortSelect');
-    if (sort) sort.addEventListener('change', () => { Filters.state.sort = sort.value; rerenderView(); });
 
-    const prio = content.querySelector('#priorityFilter');
-    if (prio) prio.addEventListener('change', () => { Filters.state.priority = prio.value; rerenderView(); });
+    const pf = container.querySelector('#priorityFilter');
+    if (pf) {
+      pf.addEventListener('change', () => {
+        Filters.state.priority = pf.value;
+        rerenderView();
+      });
+    }
 
-    const catf = content.querySelector('#categoryFilter');
-    if (catf) catf.addEventListener('change', () => { Filters.state.category = catf.value; rerenderView(); });
+    const cf = container.querySelector('#categoryFilter');
+    if (cf) {
+      cf.addEventListener('change', () => {
+        Filters.state.category = cf.value;
+        rerenderView();
+      });
+    }
 
-    const vm = content.querySelector('#prefViewMode');
-    if (vm) vm.addEventListener('change', () => {
-      const prefs = Storage.getPrefs();
-      prefs.viewMode = vm.value;
-      Storage.savePrefs(prefs);
-      Filters.state.view = vm.value;
-      Tasks.toast('Preference saved', 'success');
-    });
+    const ls = container.querySelector('#localSearch');
+    if (ls) {
+      ls.addEventListener('input', () => {
+        Filters.state.search = ls.value;
+        rerenderView();
+      });
+    }
 
-    const notifSwitch = content.querySelector('#prefNotifications');
-    if (notifSwitch) notifSwitch.addEventListener('click', () => {
-      const prefs = Storage.getPrefs();
-      prefs.notifications = !prefs.notifications;
-      Storage.savePrefs(prefs);
-      notifSwitch.classList.toggle('on', prefs.notifications);
-      notifSwitch.setAttribute('aria-checked', prefs.notifications);
-    });
-
-    const catName = content.querySelector('#catNameInput');
-    if (catName) catName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveCategoryForm(); });
+    const profLogout = container.querySelector('#btnProfileLogout');
+    if (profLogout) {
+      profLogout.addEventListener('click', async () => {
+        await authService.logout();
+        window.location.replace('index.html');
+      });
+    }
   };
 
-  const rerenderView = () => {
-    const content = document.getElementById('appContent');
-    content.innerHTML = RENDERERS[currentView]({});
-    wireView(content);
-  };
-
-  /* ---------- category form state ---------- */
-  let editingCategoryId = null;
-
-  const openCategoryForm = (catId = null) => {
+  const openCategoryForm = (id) => {
+    editingCategoryId = id;
     const panel = document.getElementById('categoryFormPanel');
     if (!panel) return;
-    editingCategoryId = catId;
     panel.hidden = false;
-    const input = panel.querySelector('#catNameInput');
-    const btn = panel.querySelector('[data-action="save-category"]');
-    if (catId) {
-      const cat = Storage.getCategories().find((c) => c.id === catId);
-      input.value = cat ? cat.name : '';
-      btn.innerHTML = `${ICONS.check} Save Changes`;
-      selectColor(cat ? cat.color : null);
-    } else {
-      input.value = '';
-      btn.innerHTML = `${ICONS.plusSm} Create Category`;
-      selectColor('#7C5CFC');
-    }
-    setTimeout(() => input.focus(), 30);
-  };
+    const inp = document.getElementById('catNameInput');
+    const titleBtn = panel.querySelector('[data-action="save-category"]');
 
-  const selectedColor = () => {
-    const el = document.querySelector('#catColorOptions .color-option.selected');
-    return el ? el.dataset.color : '#7C5CFC';
+    if (id) {
+      const c = Storage.getCategories().find((x) => x.id === id);
+      if (c) {
+        inp.value = c.name;
+        selectColor(c.color);
+        if (titleBtn) titleBtn.innerHTML = `${window.ICONS.check} Atualizar Categoria`;
+      }
+    } else {
+      inp.value = '';
+      selectColor('#7C5CFC');
+      if (titleBtn) titleBtn.innerHTML = `${window.ICONS.plusSm} Criar Categoria`;
+    }
+    inp.focus();
   };
 
   const selectColor = (color) => {
     document.querySelectorAll('#catColorOptions .color-option').forEach((b) => {
-      b.classList.toggle('selected', !!color && b.dataset.color === color);
+      b.classList.toggle('selected', b.dataset.color === color);
     });
   };
 
   const saveCategoryForm = () => {
-    const input = document.getElementById('catNameInput');
-    const name = input.value.trim();
-    if (!name) { input.focus(); Tasks.toast('Category name is required', 'warning'); return; }
+    const inp = document.getElementById('catNameInput');
+    const name = inp ? inp.value.trim() : '';
+    if (!name) {
+      Tasks.toast('Informe o nome da categoria', 'warning');
+      return;
+    }
+    const sel = document.querySelector('#catColorOptions .color-option.selected');
+    const color = sel ? sel.dataset.color : '#7C5CFC';
+
     if (editingCategoryId) {
-      Tasks.updateCategory(editingCategoryId, name, selectedColor());
-      Tasks.toast('Category updated', 'success');
+      Tasks.updateCategory(editingCategoryId, { name, color });
     } else {
-      Tasks.createCategory(name, selectedColor());
-      Tasks.toast('Category created', 'success');
+      Tasks.createCategory({ name, color });
     }
     editingCategoryId = null;
-    App.refresh();
+    const panel = document.getElementById('categoryFormPanel');
+    if (panel) panel.hidden = true;
+    refresh();
   };
 
-  /* ================= NOTIFICATIONS PANEL ================= */
-  const toggleNotifPanel = () => {
-    const panel = document.getElementById('notifPanel');
-    if (!panel.hidden) { panel.hidden = true; return; }
-    const open = Tasks.all().filter((t) => t.status !== 'completed');
-    const urgent = open.filter((t) => Tasks.isToday(t) || Tasks.isOverdue(t));
-    panel.innerHTML = `
-      <div class="notif-panel__title">Needs attention · ${urgent.length}</div>
-      ${urgent.length
-        ? urgent.slice(0, 6).map((t) => {
-            const d = Tasks.daysBetween(t.dueDate);
-            return `<div class="notif-item" data-nav="mytasks" data-filter="today">
-              <span class="cat-dot" style="margin-top:6px;background:${(Tasks.categoryOf(t) || {}).color || 'var(--primary)'}"></span>
-              <span>
-                <span class="notif-item__title">${Tasks.escapeHTML(t.title)}</span><br>
-                <span class="notif-item__meta">${d < 0 ? 'Overdue' : 'Due today'} · ${Tasks.PRIORITY_META[t.priority].label} priority</span>
-              </span>
-            </div>`;
-          }).join('')
-        : '<div class="notif-empty">Nothing urgent. You are all caught up!</div>'}`;
-    panel.hidden = false;
-  };
-
-  /* ================= GLOBAL EVENTS ================= */
   const bindGlobal = () => {
-    // sidebar navigation
-    document.getElementById('sidebarNav').addEventListener('click', (e) => {
-      const nav = e.target.closest('.nav-item');
-      if (!nav) return;
-      e.preventDefault();
-      navigate(nav.dataset.view);
-      closeDrawer();
-    });
+    const sidebarNav = document.getElementById('sidebarNav');
+    if (sidebarNav) {
+      sidebarNav.addEventListener('click', (e) => {
+        const nav = e.target.closest('.nav-item');
+        if (!nav || !nav.dataset.view) return;
+        e.preventDefault();
+        navigate(nav.dataset.view);
+        closeDrawer();
+      });
+    }
 
-    document.getElementById('navCategories').addEventListener('click', (e) => {
-      const cat = e.target.closest('.nav-cat');
-      if (!cat) return;
-      e.preventDefault();
-      Filters.state.category = cat.dataset.id;
-      Filters.state.status = 'all';
-      navigate('mytasks');
-      closeDrawer();
-    });
+    const navCats = document.getElementById('navCategories');
+    if (navCats) {
+      navCats.addEventListener('click', (e) => {
+        const cat = e.target.closest('.nav-cat');
+        if (!cat) return;
+        e.preventDefault();
+        Filters.state.category = cat.dataset.id;
+        Filters.state.status = 'all';
+        navigate('mytasks');
+        closeDrawer();
+      });
+    }
 
-    // global delegated actions
     document.addEventListener('click', (e) => {
       const el = e.target.closest('[data-action], [data-nav], [data-chip], [data-viewmode], [data-color]');
       if (!el) return;
 
-      // close notif panel on any other click
       if (!e.target.closest('#notifPanel') && !e.target.closest('#btnNotifications')) {
-        document.getElementById('notifPanel').hidden = true;
+        const np = document.getElementById('notifPanel');
+        if (np) np.hidden = true;
       }
 
       const act = el.dataset.action;
 
       if (el.dataset.color) { selectColor(el.dataset.color); return; }
-
       if (act === 'open-create') { Tasks.openModal(null); return; }
       if (act === 'close-modal') { Tasks.closeModal(); return; }
       if (act === 'submit-task') { Tasks.submitModal(); return; }
       if (act === 'modal-delete') { Tasks.modalDelete(); return; }
       if (act === 'goto-profile') { navigate('profile'); closeDrawer(); return; }
       if (act === 'goto-categories') { Filters.state.category = 'all'; navigate('categories'); return; }
-      if (act === 'toggle-notifications') { toggleNotifPanel(); return; }
+      if (act === 'toggle-notifications') {
+        const panel = document.getElementById('notifPanel');
+        if (panel) panel.hidden = !panel.hidden;
+        return;
+      }
 
       if (act === 'toggle-task') { Tasks.toggleComplete(el.dataset.id); return; }
       if (act === 'edit-task') { Tasks.openModal(el.dataset.id); return; }
@@ -669,7 +1170,6 @@ const App = (() => {
       if (act === 'retry-fetch') { Tasks.retry(); return; }
 
       if (act === 'set-theme') { Theme.set(el.dataset.theme); rerenderView(); return; }
-
       if (act === 'new-category') { openCategoryForm(null); return; }
       if (act === 'edit-category') { openCategoryForm(el.dataset.id); return; }
       if (act === 'cancel-category') {
@@ -680,7 +1180,7 @@ const App = (() => {
       }
       if (act === 'save-category') { saveCategoryForm(); return; }
       if (act === 'delete-category') {
-        if (Tasks.deleteCategory(el.dataset.id)) App.refresh();
+        if (Tasks.deleteCategory(el.dataset.id)) TaskFlowApp.refresh();
         return;
       }
       if (act === 'filter-cat') {
@@ -690,17 +1190,14 @@ const App = (() => {
         return;
       }
       if (act === 'save-profile') {
-        const name = document.getElementById('profileName').value.trim();
-        const email = document.getElementById('profileEmail').value.trim();
-        const role = document.getElementById('profileRole').value.trim();
-        if (!name) { Tasks.toast('Name is required', 'warning'); return; }
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { Tasks.toast('Enter a valid e-mail', 'warning'); return; }
-        Storage.saveProfile({ name, email, role });
+        const name = document.getElementById('profileName')?.value.trim();
+        const role = document.getElementById('profileRole')?.value.trim();
+        if (!name) { Tasks.toast('Informe um nome', 'warning'); return; }
+        Storage.saveProfile({ name, role });
         syncProfile();
-        Tasks.toast('Profile updated', 'success');
+        Tasks.toast('Perfil atualizado com sucesso!', 'success');
         return;
       }
-
       if (el.dataset.chip) {
         Filters.state.status = el.dataset.chip;
         rerenderView();
@@ -715,87 +1212,68 @@ const App = (() => {
         return;
       }
       if (el.dataset.nav) {
-        if (el.dataset.filter === 'today') {
-          document.getElementById('notifPanel').hidden = true;
-          navigate('today');
-          return;
-        }
         navigate(el.dataset.nav);
-        document.getElementById('notifPanel').hidden = true;
+        const np = document.getElementById('notifPanel');
+        if (np) np.hidden = true;
         return;
       }
     });
 
-    // modal: status segmented control
-    document.getElementById('taskStatusGroup').addEventListener('click', (e) => {
-      const btn = e.target.closest('.segmented__btn');
-      if (!btn) return;
-      Tasks.setModalStatus(btn.dataset.status);
-    });
+    const statusGroup = document.getElementById('taskStatusGroup');
+    if (statusGroup) {
+      statusGroup.addEventListener('click', (e) => {
+        const btn = e.target.closest('.segmented__btn');
+        if (!btn) return;
+        Tasks.setModalStatus(btn.dataset.status);
+      });
+    }
 
-    // modal overlay click-outside
-    document.getElementById('taskModal').addEventListener('click', (e) => {
-      if (e.target.id === 'taskModal') Tasks.closeModal();
-    });
+    const taskModal = document.getElementById('taskModal');
+    if (taskModal) {
+      taskModal.addEventListener('click', (e) => {
+        if (e.target.id === 'taskModal') Tasks.closeModal();
+      });
+    }
 
-    // global search
     const gs = document.getElementById('globalSearch');
-    gs.addEventListener('input', () => {
-      Filters.state.search = gs.value;
-      if (currentView !== 'mytasks') navigate('mytasks');
-      else rerenderView();
-    });
+    if (gs) {
+      gs.addEventListener('input', () => {
+        Filters.state.search = gs.value;
+        if (currentView !== 'mytasks') navigate('mytasks');
+        else rerenderView();
+      });
+    }
 
-    // notifications button already covered by data-action
+    const btnMenu = document.getElementById('btnMenu');
+    if (btnMenu) {
+      btnMenu.addEventListener('click', () => {
+        document.getElementById('sidebar')?.classList.add('open');
+        document.getElementById('sidebarOverlay')?.classList.add('show');
+      });
+    }
 
-    // mobile drawer
-    document.getElementById('btnMenu').addEventListener('click', () => {
-      document.getElementById('sidebar').classList.add('open');
-      document.getElementById('sidebarOverlay').classList.add('show');
-    });
-    document.getElementById('sidebarOverlay').addEventListener('click', closeDrawer);
-
-    // keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault();
-        document.getElementById('globalSearch').focus();
-      }
-      if (e.key === 'Escape') {
-        Tasks.closeModal();
-        document.getElementById('notifPanel').hidden = true;
-        closeDrawer();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        if (!document.getElementById('taskModal').hidden) Tasks.submitModal();
-      }
-      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
-        e.preventDefault();
-        document.getElementById('globalSearch').focus();
-      }
-    });
+    const overlay = document.getElementById('sidebarOverlay');
+    if (overlay) {
+      overlay.addEventListener('click', closeDrawer);
+    }
   };
 
   const closeDrawer = () => {
-    document.getElementById('sidebar').classList.remove('open');
-    document.getElementById('sidebarOverlay').classList.remove('show');
-  };
-
-  /* ---------- init ---------- */
-  const injectStaticIcons = () => {
-    document.querySelectorAll('[data-icon]').forEach((el) => {
-      el.innerHTML = window.ICONS[el.dataset.icon] || '';
-    });
+    document.getElementById('sidebar')?.classList.remove('open');
+    document.getElementById('sidebarOverlay')?.classList.remove('show');
   };
 
   const init = () => {
-    Storage.init();
-    Theme.init();
+    if (typeof Storage !== 'undefined') Storage.init();
+    if (typeof Theme !== 'undefined') Theme.init();
 
-    injectStaticIcons();
+    document.querySelectorAll('[data-icon]').forEach((el) => {
+      el.innerHTML = window.ICONS[el.dataset.icon] || '';
+    });
 
-    // respect saved default view mode
-    Filters.state.view = Storage.getPrefs().viewMode || 'list';
+    if (typeof Filters !== 'undefined' && typeof Storage !== 'undefined') {
+      Filters.state.view = Storage.getPrefs().viewMode || 'list';
+    }
 
     syncSidebar();
     syncProfile();
@@ -814,14 +1292,33 @@ const App = (() => {
     }
   };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-
-  return { navigate, refresh, rerenderView };
+  return { init, navigate, refresh, rerenderView };
 })();
 
-window.App = App;
-export { App };
+/* ==========================================================================
+   SEÇÃO 4: INICIALIZAÇÃO AUTOMÁTICA CONFORME A PÁGINA
+   ========================================================================== */
+function bootstrap() {
+  // Inicializa recursos globais de formulário de autenticação
+  initPasswordToggles();
+  initLoginForm();
+  initRegisterForm();
+  initPasswordResetForm();
+  initEmailVerification();
+  initUpdatePasswordForm();
+
+  // Se estiver na tela do Dashboard (TaskFlow pronto)
+  if (document.getElementById("appContent")) {
+    TaskFlowApp.init();
+    initTaskFlowAuthIntegration();
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", bootstrap);
+} else {
+  bootstrap();
+}
+
+window.App = TaskFlowApp;
+export { TaskFlowApp as App };

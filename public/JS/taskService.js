@@ -1,5 +1,5 @@
 /* ============ TASKFLOW — FIRESTORE TASK SERVICE ============ */
-import { db } from "./firebase.js";
+import { db, auth } from "./firebase.js";
 import {
   collection,
   addDoc,
@@ -66,12 +66,15 @@ export const TaskService = {
 
   /**
    * Create a new task in Firestore using addDoc() with auto-generated ID
+   * Associates the task with the authenticated user ID when available
    * @param {Object} task Task data
    * @returns {Promise<string>} Created document ID
    */
   async createTask(task) {
     try {
       const isCompleted = task.status === "completed" || task.completed === true;
+      const currentUser = auth?.currentUser;
+
       const docData = {
         title: (task.title || "").trim(),
         description: (task.description || "").trim(),
@@ -81,6 +84,8 @@ export const TaskService = {
         status: isCompleted ? "completed" : (task.status || "todo"),
         completed: isCompleted,
         completedAt: isCompleted ? (task.completedAt || new Date().toISOString().slice(0, 10)) : null,
+        userId: currentUser?.uid || null,
+        userEmail: currentUser?.email || null,
         createdAt: serverTimestamp()
       };
 
