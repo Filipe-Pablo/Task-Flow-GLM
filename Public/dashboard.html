@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="CSS/responsive.css">
   <!-- Auth guard: protege esta página contra acessos não autenticados ou e-mails não verificados -->
   <script type="module">
-    import { authGuard } from "./js/auth-guard.js";
+    import { authGuard } from "./JS/auth-guard.js";
     await authGuard.requireAuth({ requireVerified: true, redirectTo: "index.html" });
   </script>
 </head>

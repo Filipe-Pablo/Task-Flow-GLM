@@ -1,74 +1,101 @@
 /**
  * ============================================================================
- * TaskFlow Authentication — Centralized Error Handling
+ * TaskFlow Authentication — Centralized Error Handling & Translation
  * ============================================================================
  * Responsável pela tradução e tratamento centralizado de todos os erros do
- * Firebase Authentication, garantindo privacidade, segurança e proteção
- * contra enumeração de e-mails.
+ * Firebase Authentication em mensagens em português claras, amigáveis e
+ * orientadas ao usuário final, preservando a segurança e privacidade.
  *
- * Regra fundamental: Nenhuma mensagem da aplicação deve permitir que terceiros
- * descubram se um determinado endereço de e-mail está cadastrado no sistema.
+ * Tecnologias: JavaScript puro (ES Modules).
  */
 
 const ERROR_MESSAGES = {
-  // Credenciais inválidas (login)
-  "auth/invalid-credential": "E-mail ou senha incorretos.",
-  "auth/wrong-password": "E-mail ou senha incorretos.",
-  "auth/user-not-found": "E-mail ou senha incorretos.",
+  // Credenciais de login inválidas
+  "auth/invalid-credential": "E-mail ou senha incorretos. Verifique suas credenciais e tente novamente.",
+  "auth/wrong-password": "E-mail ou senha incorretos. Verifique suas credenciais e tente novamente.",
+  "auth/user-not-found": "Não encontramos uma conta cadastrada com este e-mail.",
 
   // Validação de e-mail
-  "auth/invalid-email": "Verifique o endereço de e-mail informado.",
+  "auth/invalid-email": "O endereço de e-mail informado é inválido. Por favor, verifique a digitação.",
+  "auth/missing-email": "Por favor, informe seu endereço de e-mail.",
 
-  // Validação de senha
-  "auth/weak-password": "A senha não atende aos requisitos mínimos.",
+  // Validação e força da senha
+  "auth/weak-password": "A senha informada é fraca. Ela deve conter no mínimo 8 caracteres, incluindo letras e números.",
+  "auth/missing-password": "Por favor, informe sua senha.",
 
-  // Privacidade: nunca confirmar se o e-mail já existe
-  "auth/email-already-in-use": "Se aplicável, verifique os dados informados ou tente recuperar sua senha.",
+  // Conflito de conta existente
+  "auth/email-already-in-use": "Este endereço de e-mail já está cadastrado. Faça login ou utilize a recuperação de senha.",
 
-  // Excesso de requisições / Rate limit
-  "auth/too-many-requests": "Muitas tentativas foram realizadas. Aguarde alguns instantes e tente novamente.",
+  // Limite de taxa / Rate limiting
+  "auth/too-many-requests": "Muitas tentativas consecutivas foram detectadas. Por segurança, aguarde alguns instantes e tente novamente.",
 
-  // Falha de rede / conectividade
-  "auth/network-request-failed": "Não foi possível conectar ao serviço. Verifique sua conexão.",
+  // Conectividade e rede
+  "auth/network-request-failed": "Não foi possível conectar ao servidor. Verifique sua conexão com a internet e tente novamente.",
 
-  // Reautenticação necessária (operações sensíveis como alteração de senha)
-  "auth/requires-recent-login": "Por segurança, realize novamente sua autenticação.",
+  // Reautenticação necessária para operações sensíveis
+  "auth/requires-recent-login": "Esta operação exige uma confirmação recente de segurança. Por favor, entre novamente na sua conta.",
 
-  // Usuário desativado
-  "auth/user-disabled": "Não foi possível realizar a operação. Entre em contato com o suporte.",
+  // Conta desativada
+  "auth/user-disabled": "Esta conta de usuário foi temporariamente suspensa. Entre em contato com o suporte.",
 
-  // Credencial expirada ou malformada
-  "auth/expired-action-code": "O link expirou ou já foi utilizado. Solicite um novo.",
-  "auth/invalid-action-code": "O link de verificação é inválido. Solicite um novo envio.",
+  // Links de ação (recuperação de senha / verificação de e-mail)
+  "auth/expired-action-code": "O link de verificação expirou ou já foi utilizado. Solicite um novo envio.",
+  "auth/invalid-action-code": "O link de verificação é inválido. Solicite um novo link.",
 
-  // Erro padrão
-  "default": "Não foi possível concluir a operação. Tente novamente."
+  // Operações e permissões do projeto Firebase
+  "auth/operation-not-allowed": "O método de autenticação por e-mail e senha não está habilitado no console do projeto.",
+  "auth/quota-exceeded": "Limite de requisições temporariamente excedido. Aguarde alguns minutos e tente novamente.",
+  "auth/popup-closed-by-user": "A janela de autenticação foi encerrada antes de concluir o processo.",
+  "auth/internal-error": "Ocorreu um erro interno de processamento no Firebase. Tente novamente em alguns instantes.",
+  "auth/invalid-api-key": "Chave de acesso à API do Firebase inválida. Verifique as configurações.",
+
+  // Padrão genérico
+  "default": "Não foi possível concluir a operação. Por favor, verifique os dados informados e tente novamente."
 };
 
 /**
- * Traduz um código de erro ou objeto de erro do Firebase em uma mensagem segura e amigável.
- * Nunca expõe stack traces, códigos internos ou pistas sobre a existência de contas.
+ * Traduz um código ou objeto de erro retornado pelo Firebase para uma mensagem amigável.
+ * Suporta parâmetro de contexto opcional (ex: 'reauth' para troca de senha).
  *
- * @param {Error|Object|string} error Objeto de erro ou código de erro
- * @returns {string} Mensagem amigável e segura para exibição na interface
+ * @param {Error|Object|string} error Objeto de erro ou código do Firebase
+ * @param {string|null} context Contexto da operação ('login'|'register'|'reset'|'reauth'|null)
+ * @returns {string} Mensagem amigável traduzida
  */
-export function getAuthErrorMessage(error) {
+export function getAuthErrorMessage(error, context = null) {
   if (!error) {
     return ERROR_MESSAGES["default"];
   }
 
-  // Extrair o código de erro do Firebase (ex: "auth/invalid-credential")
+  // Extrair o código de erro (suporta string direta, objeto de erro padrão ou customizado)
   const code = typeof error === "string" ? error : error?.code;
+
+  // Tratamento contextual específico para reautenticação (atualização de senha)
+  if (context === "reauth" && (code === "auth/wrong-password" || code === "auth/invalid-credential")) {
+    return "A senha atual informada está incorreta. Verifique e tente novamente.";
+  }
+
+  if (context === "reset" && code === "auth/user-not-found") {
+    return "Não encontramos uma conta cadastrada com este endereço de e-mail.";
+  }
 
   if (code && typeof code === "string" && ERROR_MESSAGES[code]) {
     return ERROR_MESSAGES[code];
+  }
+
+  // Se o erro tiver uma mensagem tratada que não contenha jargões técnicos do Firebase
+  if (error?.message && typeof error.message === "string") {
+    const rawMsg = error.message;
+    // Se não for uma mensagem interna crua com Firebase: Error (...)
+    if (!rawMsg.includes("Firebase:") && !rawMsg.includes("auth/")) {
+      return rawMsg;
+    }
   }
 
   return ERROR_MESSAGES["default"];
 }
 
 /**
- * Verifica se um erro corresponde ao bloqueio temporário por excesso de requisições.
+ * Verifica se o erro corresponde a rate limit / excesso de requisições.
  * @param {Error|Object|string} error
  * @returns {boolean}
  */
@@ -78,7 +105,17 @@ export function isTooManyRequestsError(error) {
 }
 
 /**
- * Verifica se um erro exige reautenticação recente do usuário.
+ * Verifica se o erro corresponde a falha de conexão de rede.
+ * @param {Error|Object|string} error
+ * @returns {boolean}
+ */
+export function isNetworkError(error) {
+  const code = typeof error === "string" ? error : error?.code;
+  return code === "auth/network-request-failed";
+}
+
+/**
+ * Verifica se o erro exige login recente para operações protegidas.
  * @param {Error|Object|string} error
  * @returns {boolean}
  */

@@ -19,27 +19,91 @@ import { getAuthErrorMessage, isTooManyRequestsError } from "./auth-errors.js";
    ========================================================================== */
 
 /**
+ * Marca ou desmarca visualmente um campo de formulário como inválido.
+ * @param {string|HTMLInputElement} input
+ * @param {boolean} isInvalid
+ */
+export function setFieldInvalid(input, isInvalid = true) {
+  const el = typeof input === "string" ? document.getElementById(input) : input;
+  if (!el) return;
+  if (isInvalid) {
+    el.classList.add("is-invalid");
+    el.setAttribute("aria-invalid", "true");
+  } else {
+    el.classList.remove("is-invalid");
+    el.removeAttribute("aria-invalid");
+  }
+}
+
+/**
+ * Remove qualquer marcação de erro visual de todos os campos de um formulário.
+ * @param {HTMLFormElement} form
+ */
+export function clearFormValidation(form) {
+  if (!form) return;
+  form.querySelectorAll(".form-input").forEach((input) => {
+    input.classList.remove("is-invalid");
+    input.removeAttribute("aria-invalid");
+  });
+}
+
+/**
+ * Adiciona listeners nos campos para limpar o estado de erro assim que o usuário digita.
+ * @param {HTMLFormElement} form
+ */
+export function attachInputValidationClearing(form) {
+  if (!form) return;
+  form.querySelectorAll(".form-input").forEach((input) => {
+    input.addEventListener("input", () => {
+      if (input.classList.contains("is-invalid")) {
+        setFieldInvalid(input, false);
+      }
+    });
+  });
+}
+
+/**
  * Exibe alertas dinâmicos com acessibilidade na área dedicada da página de autenticação.
  * @param {string} message Mensagem a ser exibida
- * @param {'danger'|'success'|'info'} type Tipo do alerta
+ * @param {'danger'|'success'|'info'|'warning'} type Tipo do alerta
  */
 export function showAuthAlert(message, type = "danger") {
   const alertArea = document.getElementById("authAlertArea");
   if (!alertArea) return;
 
+  const roleAttr = type === "danger" ? 'role="alert"' : 'role="status"';
+
   const iconSvg =
     type === "success"
       ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>`
+      : type === "warning"
+      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`
       : type === "info"
       ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`
       : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
 
   alertArea.innerHTML = `
-    <div class="auth-alert auth-alert--${type}" role="alert">
+    <div class="auth-alert auth-alert--${type}" ${roleAttr}>
       <span class="auth-alert__icon">${iconSvg}</span>
       <div class="auth-alert__content">${message}</div>
+      <button type="button" class="auth-alert__close" aria-label="Fechar notificação" title="Fechar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     </div>
   `;
+
+  // Listener para botão de fechar o alerta
+  const closeBtn = alertArea.querySelector(".auth-alert__close");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => {
+      clearAuthAlert();
+    });
+  }
+
+  // Scroll suave se o alerta estiver fora do campo de visão
+  if (typeof alertArea.scrollIntoView === "function") {
+    alertArea.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
 }
 
 /**
@@ -66,6 +130,20 @@ export function setButtonLoading(button, isLoading, loadingText = "Processando..
   } else if (button.dataset.originalHtml) {
     button.innerHTML = button.dataset.originalHtml;
   }
+}
+
+/**
+ * Desabilita ou habilita todos os campos de entrada de um formulário durante operações assíncronas.
+ * @param {HTMLFormElement} form
+ * @param {boolean} disabled
+ */
+export function setFormInputsDisabled(form, disabled) {
+  if (!form) return;
+  form.querySelectorAll("input, button:not([data-toggle-target])").forEach((el) => {
+    if (el.id !== "btnThemeToggle") {
+      el.disabled = disabled;
+    }
+  });
 }
 
 /**
@@ -175,50 +253,95 @@ function initRegisterForm() {
   if (!form) return;
 
   initPasswordChecklist("registerPassword", "registerConfirmPassword");
+  attachInputValidationClearing(form);
+
+  let isSubmitting = false;
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    clearAuthAlert();
+    if (isSubmitting) return;
 
-    const email = document.getElementById("registerEmail")?.value.trim();
-    const password = document.getElementById("registerPassword")?.value;
-    const confirmPassword = document.getElementById("registerConfirmPassword")?.value;
+    clearAuthAlert();
+    clearFormValidation(form);
+
+    const emailInput = document.getElementById("registerEmail");
+    const passwordInput = document.getElementById("registerPassword");
+    const confirmPasswordInput = document.getElementById("registerConfirmPassword");
     const submitBtn = document.getElementById("btnRegisterSubmit");
 
-    if (!email || !password || !confirmPassword) {
-      showAuthAlert("Preencha todos os campos obrigatórios.");
+    const email = emailInput?.value.trim() || "";
+    const password = passwordInput?.value || "";
+    const confirmPassword = confirmPasswordInput?.value || "";
+
+    if (!email) {
+      setFieldInvalid(emailInput, true);
+      showAuthAlert("Por favor, preencha o campo de e-mail.");
+      emailInput?.focus();
       return;
     }
 
     if (!authService.validateEmail(email)) {
-      showAuthAlert("Informe um endereço de e-mail válido.");
+      setFieldInvalid(emailInput, true);
+      showAuthAlert("O endereço de e-mail informado é inválido. Por favor, verifique.");
+      emailInput?.focus();
+      return;
+    }
+
+    if (!password) {
+      setFieldInvalid(passwordInput, true);
+      showAuthAlert("Por favor, crie uma senha de acesso.");
+      passwordInput?.focus();
+      return;
+    }
+
+    if (!confirmPassword) {
+      setFieldInvalid(confirmPasswordInput, true);
+      showAuthAlert("Por favor, confirme sua senha.");
+      confirmPasswordInput?.focus();
       return;
     }
 
     const validation = authService.validatePassword(password, confirmPassword);
     if (!validation.isValid) {
       if (!validation.passwordsMatch) {
-        showAuthAlert("As senhas informadas não são iguais.");
+        setFieldInvalid(confirmPasswordInput, true);
+        showAuthAlert("As senhas informadas não são iguais. Verifique e confirme.");
+        confirmPasswordInput?.focus();
       } else {
-        showAuthAlert("A senha não atende aos requisitos mínimos de segurança.");
+        setFieldInvalid(passwordInput, true);
+        showAuthAlert("A senha deve conter no mínimo 8 caracteres, com pelo menos uma letra e um número.");
+        passwordInput?.focus();
       }
       return;
     }
 
-    setButtonLoading(submitBtn, true, "Criando conta...");
+    isSubmitting = true;
+    setButtonLoading(submitBtn, true, "Criando sua conta...");
+    setFormInputsDisabled(form, true);
 
     try {
       const result = await authService.register(email, password);
       showAuthAlert(result.message, "success");
 
-      // Redireciona para verificação de e-mail após 1.5s
+      // Redireciona para verificação de e-mail após confirmação visual
       setTimeout(() => {
         window.location.replace("verificar-email.html");
-      }, 1500);
+      }, 1400);
     } catch (error) {
+      isSubmitting = false;
       setButtonLoading(submitBtn, false);
-      const friendlyMessage = getAuthErrorMessage(error);
+      setFormInputsDisabled(form, false);
+
+      const friendlyMessage = getAuthErrorMessage(error, "register");
       showAuthAlert(friendlyMessage, "danger");
+
+      if (error?.code === "auth/email-already-in-use") {
+        setFieldInvalid(emailInput, true);
+        emailInput?.focus();
+      } else if (error?.code === "auth/weak-password") {
+        setFieldInvalid(passwordInput, true);
+        passwordInput?.focus();
+      }
     }
   });
 }
@@ -230,44 +353,79 @@ function initLoginForm() {
   const form = document.getElementById("loginForm");
   if (!form) return;
 
+  attachInputValidationClearing(form);
+
+  let isSubmitting = false;
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    clearAuthAlert();
+    if (isSubmitting) return;
 
-    const email = document.getElementById("loginEmail")?.value.trim();
-    const password = document.getElementById("loginPassword")?.value;
+    clearAuthAlert();
+    clearFormValidation(form);
+
+    const emailInput = document.getElementById("loginEmail");
+    const passwordInput = document.getElementById("loginPassword");
     const submitBtn = document.getElementById("btnLoginSubmit");
 
-    if (!email || !password) {
-      showAuthAlert("Preencha seu e-mail e senha.");
+    const email = emailInput?.value.trim() || "";
+    const password = passwordInput?.value || "";
+
+    if (!email) {
+      setFieldInvalid(emailInput, true);
+      showAuthAlert("Informe seu e-mail de acesso.");
+      emailInput?.focus();
       return;
     }
 
     if (!authService.validateEmail(email)) {
-      showAuthAlert("Informe um endereço de e-mail válido.");
+      setFieldInvalid(emailInput, true);
+      showAuthAlert("O formato do e-mail é inválido. Verifique o endereço digitado.");
+      emailInput?.focus();
       return;
     }
 
-    setButtonLoading(submitBtn, true, "Entrando...");
+    if (!password) {
+      setFieldInvalid(passwordInput, true);
+      showAuthAlert("Informe sua senha de acesso.");
+      passwordInput?.focus();
+      return;
+    }
+
+    isSubmitting = true;
+    setButtonLoading(submitBtn, true, "Autenticando...");
+    setFormInputsDisabled(form, true);
 
     try {
       const { isVerified } = await authService.login(email, password);
 
       if (!isVerified) {
-        showAuthAlert("Seu e-mail ainda não foi verificado. Redirecionando para confirmação...", "info");
+        showAuthAlert("Seu e-mail ainda não foi confirmado. Redirecionando para verificação...", "info");
         setTimeout(() => {
           window.location.replace("verificar-email.html");
         }, 1200);
       } else {
-        showAuthAlert("Autenticação realizada com sucesso! Redirecionando...", "success");
+        showAuthAlert("Autenticação realizada com sucesso! Acessando sistema...", "success");
         setTimeout(() => {
           window.location.replace("dashboard.html");
         }, 800);
       }
     } catch (error) {
+      isSubmitting = false;
       setButtonLoading(submitBtn, false);
-      const friendlyMessage = getAuthErrorMessage(error);
+      setFormInputsDisabled(form, false);
+
+      // Preserva o valor de e-mail e destaca os campos apropriados
+      const friendlyMessage = getAuthErrorMessage(error, "login");
       showAuthAlert(friendlyMessage, "danger");
+
+      if (error?.code === "auth/invalid-email") {
+        setFieldInvalid(emailInput, true);
+        emailInput?.focus();
+      } else {
+        setFieldInvalid(passwordInput, true);
+        passwordInput?.focus();
+      }
     }
   });
 }
@@ -284,10 +442,14 @@ function initEmailVerification() {
 
   if (!checkBtn && !resendBtn) return;
 
-  // Carregar e-mail do usuário autenticado no badge
-  authService.waitForAuthInit().then((user) => {
-    if (user && emailBadge) {
-      emailBadge.textContent = user.email || "seu e-mail";
+  // Carregar e-mail do usuário autenticado no badge com fallback amigável
+  authService.waitForAuthInit(2500).then((user) => {
+    if (emailBadge) {
+      if (user && user.email) {
+        emailBadge.textContent = user.email;
+      } else {
+        emailBadge.textContent = "seu endereço de e-mail";
+      }
     }
   });
 
@@ -295,7 +457,7 @@ function initEmailVerification() {
   if (checkBtn) {
     checkBtn.addEventListener("click", async () => {
       clearAuthAlert();
-      setButtonLoading(checkBtn, true, "Verificando status...");
+      setButtonLoading(checkBtn, true, "Verificando confirmação...");
 
       try {
         const user = await authService.reloadUser();
@@ -307,7 +469,7 @@ function initEmailVerification() {
         } else {
           setButtonLoading(checkBtn, false);
           showAuthAlert(
-            "Seu e-mail ainda não foi confirmado. Verifique sua caixa de entrada e spam e clique no link de ativação.",
+            "Seu e-mail ainda consta como pendente. Abra a mensagem enviada e clique no link de ativação.",
             "info"
           );
         }
@@ -327,7 +489,7 @@ function initEmailVerification() {
       try {
         await authService.sendVerificationEmail();
         setButtonLoading(resendBtn, false);
-        showAuthAlert("Novo e-mail de confirmação enviado! Verifique sua caixa de entrada.", "success");
+        showAuthAlert("Novo e-mail de confirmação enviado com sucesso! Verifique sua caixa de entrada e spam.", "success");
         applyCooldown(resendBtn, cooldownNotice, 60);
       } catch (error) {
         setButtonLoading(resendBtn, false);
@@ -342,7 +504,11 @@ function initEmailVerification() {
   // Botão: Encerrar sessão
   if (logoutBtn) {
     logoutBtn.addEventListener("click", async () => {
-      await authService.logout();
+      try {
+        await authService.logout();
+      } catch (e) {
+        console.warn("Aviso ao encerrar sessão:", e);
+      }
       window.location.replace("index.html");
     });
   }
@@ -355,37 +521,62 @@ function initPasswordResetForm() {
   const form = document.getElementById("resetForm");
   if (!form) return;
 
+  attachInputValidationClearing(form);
+
   const submitBtn = document.getElementById("btnResetSubmit");
+  const emailInput = document.getElementById("resetEmail");
   const cooldownNotice = document.getElementById("cooldownNotice");
+
+  let isSubmitting = false;
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    clearAuthAlert();
+    if (isSubmitting) return;
 
-    const email = document.getElementById("resetEmail")?.value.trim();
+    clearAuthAlert();
+    clearFormValidation(form);
+
+    const email = emailInput?.value.trim() || "";
 
     if (!email) {
-      showAuthAlert("Informe seu endereço de e-mail.");
+      setFieldInvalid(emailInput, true);
+      showAuthAlert("Por favor, informe seu endereço de e-mail.");
+      emailInput?.focus();
       return;
     }
 
     if (!authService.validateEmail(email)) {
+      setFieldInvalid(emailInput, true);
       showAuthAlert("Informe um endereço de e-mail válido.");
+      emailInput?.focus();
       return;
     }
 
-    setButtonLoading(submitBtn, true, "Enviando...");
+    isSubmitting = true;
+    setButtonLoading(submitBtn, true, "Enviando instruções...");
+    setFormInputsDisabled(form, true);
 
     try {
       const result = await authService.sendPasswordReset(email);
+      isSubmitting = false;
       setButtonLoading(submitBtn, false);
+      setFormInputsDisabled(form, false);
 
-      // Sempre exibe mensagem genérica de sucesso independente da existência da conta
       showAuthAlert(result.message, "success");
       applyCooldown(submitBtn, cooldownNotice, 60);
     } catch (error) {
+      isSubmitting = false;
       setButtonLoading(submitBtn, false);
-      showAuthAlert(getAuthErrorMessage(error), "danger");
+      setFormInputsDisabled(form, false);
+
+      const friendlyMessage = getAuthErrorMessage(error, "reset");
+      showAuthAlert(friendlyMessage, "danger");
+
+      if (error?.code === "auth/user-not-found" || error?.code === "auth/invalid-email") {
+        setFieldInvalid(emailInput, true);
+        emailInput?.focus();
+      }
+
       if (isTooManyRequestsError(error)) {
         applyCooldown(submitBtn, cooldownNotice, 60);
       }
@@ -401,39 +592,72 @@ function initUpdatePasswordForm() {
   if (!form) return;
 
   initPasswordChecklist("newPassword", "confirmNewPassword");
+  attachInputValidationClearing(form);
 
   const submitBtn = document.getElementById("btnUpdatePasswordSubmit");
+  const currentPasswordInput = document.getElementById("currentPassword");
+  const newPasswordInput = document.getElementById("newPassword");
+  const confirmNewPasswordInput = document.getElementById("confirmNewPassword");
+
+  let isSubmitting = false;
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     clearAuthAlert();
+    clearFormValidation(form);
 
-    const currentPassword = document.getElementById("currentPassword")?.value;
-    const newPassword = document.getElementById("newPassword")?.value;
-    const confirmNewPassword = document.getElementById("confirmNewPassword")?.value;
+    const currentPassword = currentPasswordInput?.value || "";
+    const newPassword = newPasswordInput?.value || "";
+    const confirmNewPassword = confirmNewPasswordInput?.value || "";
 
-    if (!currentPassword || !newPassword || !confirmNewPassword) {
-      showAuthAlert("Preencha todos os campos obrigatórios.");
+    if (!currentPassword) {
+      setFieldInvalid(currentPasswordInput, true);
+      showAuthAlert("Por favor, digite sua senha atual para confirmação de segurança.");
+      currentPasswordInput?.focus();
+      return;
+    }
+
+    if (!newPassword) {
+      setFieldInvalid(newPasswordInput, true);
+      showAuthAlert("Por favor, digite a nova senha desejada.");
+      newPasswordInput?.focus();
+      return;
+    }
+
+    if (!confirmNewPassword) {
+      setFieldInvalid(confirmNewPasswordInput, true);
+      showAuthAlert("Por favor, confirme a nova senha.");
+      confirmNewPasswordInput?.focus();
       return;
     }
 
     const validation = authService.validatePassword(newPassword, confirmNewPassword);
     if (!validation.isValid) {
       if (!validation.passwordsMatch) {
-        showAuthAlert("A nova senha e a confirmação não coincidem.");
+        setFieldInvalid(confirmNewPasswordInput, true);
+        showAuthAlert("A confirmação da nova senha não coincide com a nova senha digitada.");
+        confirmNewPasswordInput?.focus();
       } else {
-        showAuthAlert("A nova senha não atende aos requisitos mínimos de segurança.");
+        setFieldInvalid(newPasswordInput, true);
+        showAuthAlert("A nova senha deve possuir ao menos 8 caracteres, contendo letras e números.");
+        newPasswordInput?.focus();
       }
       return;
     }
 
+    isSubmitting = true;
     setButtonLoading(submitBtn, true, "Atualizando senha...");
+    setFormInputsDisabled(form, true);
 
     try {
       await authService.updateUserPassword(newPassword, currentPassword);
+      isSubmitting = false;
       setButtonLoading(submitBtn, false);
+      setFormInputsDisabled(form, false);
 
-      showAuthAlert("Senha atualizada com sucesso!", "success");
+      showAuthAlert("Sua senha foi atualizada com sucesso! Redirecionando para o aplicativo...", "success");
 
       // Limpar campos de senha
       form.reset();
@@ -442,13 +666,26 @@ function initUpdatePasswordForm() {
         checklist.querySelectorAll(".req-item").forEach((item) => item.classList.remove("valid"));
       }
 
-      // Redireciona para o dashboard após 2s
+      // Redireciona para o dashboard após 1.6s
       setTimeout(() => {
         window.location.replace("dashboard.html");
-      }, 2000);
+      }, 1600);
     } catch (error) {
+      isSubmitting = false;
       setButtonLoading(submitBtn, false);
-      showAuthAlert(getAuthErrorMessage(error), "danger");
+      setFormInputsDisabled(form, false);
+
+      // Contexto 'reauth' garante que erro de senha atual seja amigável
+      const friendlyMessage = getAuthErrorMessage(error, "reauth");
+      showAuthAlert(friendlyMessage, "danger");
+
+      if (error?.code === "auth/wrong-password" || error?.code === "auth/invalid-credential") {
+        setFieldInvalid(currentPasswordInput, true);
+        currentPasswordInput?.focus();
+      } else if (error?.code === "auth/weak-password") {
+        setFieldInvalid(newPasswordInput, true);
+        newPasswordInput?.focus();
+      }
     }
   });
 }

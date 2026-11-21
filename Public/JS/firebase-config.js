@@ -9,7 +9,11 @@
  */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
-import { getAuth } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
+import {
+  getAuth,
+  setPersistence,
+  browserLocalPersistence
+} from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
 
 // Configuração pública oficial do Firebase do projeto TaskFlow
@@ -25,8 +29,17 @@ export const firebaseConfig = {
 // Inicialização da aplicação Firebase
 const app = initializeApp(firebaseConfig);
 
-// Inicialização do Firebase Authentication (mantém browserLocalPersistence por padrão na web)
+// Inicialização do Firebase Authentication com garantia de persistência local no navegador
 const auth = getAuth(app);
+
+// Garante explicitamente a persistência da sessão no navegador (IndexedDB / LocalStorage)
+try {
+  setPersistence(auth, browserLocalPersistence).catch((err) => {
+    console.warn("Aviso ao configurar persistência de autenticação:", err);
+  });
+} catch (err) {
+  console.warn("Ambiente sem suporte a persistência assíncrona:", err);
+}
 
 // Inicialização do Firestore para integração com o software TaskFlow
 const db = getFirestore(app);

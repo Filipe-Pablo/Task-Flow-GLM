@@ -1,12 +1,12 @@
 /**
  * ============================================================================
- * TaskFlow Authentication — Auth Guard (Proteção de Páginas e Rotas)
+ * TaskFlow Authentication — Auth Guard (Proteção de Rotas e Páginas)
  * ============================================================================
- * Responsável pela proteção centralizada de páginas e controle de acesso:
- * - Aguarda a inicialização do Firebase Authentication sem bloquear a renderização
- * - Redireciona usuários não autenticados para fora de páginas protegidas
- * - Exige verificação de e-mail para acesso às áreas privadas do sistema
- * - Redireciona usuários já autenticados para fora das telas de login/cadastro
+ * Controla e assegura o acesso a cada página do sistema:
+ * - Redireciona usuários anônimos para o login ao acessar rotas protegidas
+ * - Exige e-mail verificado para o ambiente de trabalho (dashboard)
+ * - Redireciona usuários já logados para fora das telas de login/cadastro
+ * - Previne exibição indevida de dados privados antes da validação do Firebase
  *
  * Tecnologias: JavaScript puro (ES Modules) e Firebase SDK oficial.
  */
@@ -14,38 +14,30 @@
 import { authService } from "./auth-service.js";
 
 /**
- * Remove qualquer overlay residual de forma segura e imediata.
+ * Libera a visualização suave da página após a checagem do guard.
  */
-function cleanupVeil() {
-  const apply = () => {
+function revealPage() {
+  const markReady = () => {
     if (document.body) {
       document.body.classList.add("auth-ready");
-    }
-    const veil = document.getElementById("authGuardVeil");
-    if (veil) {
-      try {
-        veil.remove();
-      } catch (e) {
-        veil.style.display = "none";
-      }
     }
   };
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", apply, { once: true });
+    document.addEventListener("DOMContentLoaded", markReady, { once: true });
   } else {
-    apply();
+    markReady();
   }
 }
 
 export const authGuard = {
   /**
-   * Protege páginas privadas (ex: dashboard.html, atualizar-senha.html).
-   * - Redireciona para login se não houver usuário autenticado
-   * - Redireciona para verificar-email.html se o e-mail não estiver confirmado
+   * Protege páginas de acesso restrito (ex: dashboard.html, atualizar-senha.html).
+   * - Redireciona para o login se não houver usuário autenticado
+   * - Redireciona para verificar-email.html caso o e-mail não tenha sido verificado
    *
    * @param {{ requireVerified?: boolean, redirectTo?: string }} options
-   * @returns {Promise<boolean>} Retorna true se o acesso for autorizado
+   * @returns {Promise<boolean>}
    */
   async requireAuth({ requireVerified = true, redirectTo = "index.html" } = {}) {
     try {
@@ -61,22 +53,22 @@ export const authGuard = {
         return false;
       }
 
-      cleanupVeil();
+      revealPage();
       return true;
     } catch (error) {
-      console.warn("AuthGuard requireAuth error:", error);
+      console.warn("AuthGuard requireAuth:", error);
       window.location.replace(redirectTo);
       return false;
     }
   },
 
   /**
-   * Protege telas públicas de autenticação (ex: index.html/login, cadastro.html, recuperar-senha.html).
-   * Se o usuário já estiver autenticado e verificado, redireciona diretamente para o dashboard.
-   * Se estiver autenticado mas com e-mail pendente, redireciona para verificar-email.html.
+   * Protege páginas exclusivas para visitantes (ex: login/index.html, cadastro.html, recuperar-senha.html).
+   * Se o usuário já estiver com sessão ativa e e-mail confirmado, redireciona ao dashboard.
+   * Se a sessão estiver ativa mas o e-mail pendente, redireciona para verificar-email.html.
    *
    * @param {{ redirectTo?: string }} options
-   * @returns {Promise<boolean>} Retorna true se for um visitante não logado
+   * @returns {Promise<boolean>}
    */
   async requireGuest({ redirectTo = "dashboard.html" } = {}) {
     try {
@@ -92,20 +84,20 @@ export const authGuard = {
         }
       }
     } catch (error) {
-      console.warn("AuthGuard requireGuest error:", error);
+      console.warn("AuthGuard requireGuest:", error);
     }
 
-    cleanupVeil();
+    revealPage();
     return true;
   },
 
   /**
-   * Garante acesso exclusivo à tela de verificação de e-mail (verificar-email.html).
-   * - Se não houver usuário logado, redireciona para login
-   * - Se o usuário já tiver verificado o e-mail, redireciona para dashboard.html
+   * Permite acesso exclusivamente a usuários com e-mail ainda pendente de verificação.
+   * - Redireciona ao login se não houver sessão ativa
+   * - Redireciona ao dashboard se o e-mail já foi verificado
    *
    * @param {{ redirectTo?: string }} options
-   * @returns {Promise<boolean>} Retorna true se o usuário tiver verificação pendente
+   * @returns {Promise<boolean>}
    */
   async requireUnverified({ redirectTo = "dashboard.html" } = {}) {
     try {
@@ -121,10 +113,10 @@ export const authGuard = {
         return false;
       }
 
-      cleanupVeil();
+      revealPage();
       return true;
     } catch (error) {
-      console.warn("AuthGuard requireUnverified error:", error);
+      console.warn("AuthGuard requireUnverified:", error);
       window.location.replace("index.html");
       return false;
     }

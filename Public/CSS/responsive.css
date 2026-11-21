@@ -112,4 +112,12 @@
   .stat-card__footer { flex-direction: row; align-items: center; }
   .header__actions .icon-btn#btnThemeHeader { display: none; }
   .velocity { padding: 10px 12px; }
+
+  /* Ajustes das telas de autenticação para smartphones compactos */
+  .auth-page { padding: 16px 12px; }
+  .auth-card { padding: 24px 18px; border-radius: 16px; }
+  .auth-title { font-size: 20px; }
+  .auth-subtitle { font-size: 12px; }
+  .form-input { font-size: 14px; padding: 10px 12px; }
+  .btn-auth-submit { padding: 11px 14px; font-size: 14px; }
 }

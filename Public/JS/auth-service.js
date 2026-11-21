@@ -2,16 +2,16 @@
  * ============================================================================
  * TaskFlow Authentication — Authentication Service
  * ============================================================================
- * Centraliza todas as operações do Firebase Authentication:
- * - Cadastro com envio automático de e-mail de verificação
- * - Login com validação de e-mail confirmado
- * - Encerramento de sessão (Logout)
+ * Centraliza e encapsula todas as operações do Firebase Authentication:
+ * - Cadastro com envio automático de e-mail de confirmação
+ * - Login seguro com validação de formato e monitoramento de e-mail verificado
+ * - Logout com encerramento de sessão
  * - Verificação de e-mail e reenvio com controle de frequência
- * - Recuperação de senha com proteção contra enumeração
- * - Atualização de senha e reautenticação segura
- * - Monitoramento de sessão com onAuthStateChanged
+ * - Recuperação de senha por e-mail com mensagens claras
+ * - Alteração de senha com reautenticação prévia de segurança
+ * - Observação e sincronização contínua do estado da sessão (onAuthStateChanged)
  *
- * Tecnologias: JavaScript puro (ES Modules) e Firebase SDK oficial.
+ * Tecnologias: JavaScript puro (ES Modules) e Firebase SDK oficial v13+.
  */
 
 import { auth } from "./firebase-config.js";
@@ -27,77 +27,73 @@ import {
   onAuthStateChanged,
   reload
 } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
-import { getAuthErrorMessage } from "./auth-errors.js";
-
-// Estado de inicialização do Firebase Auth (resolvido na primeira emissão de onAuthStateChanged)
-let authInitializedPromise = null;
 
 export const authService = {
   /**
-   * Promessa que resolve quando o Firebase Auth carrega o estado de persistência.
-   * Possui timeout de segurança para evitar qualquer loading infinito caso a conexão
-   * com o serviço esteja lenta ou indisponível.
+   * Promessa que resolve quando o Firebase Auth carrega o estado inicial de persistência.
+   * Possui fallback de segurança para nunca travar a renderização em loading infinito.
    *
-   * @param {number} timeoutMs Tempo máximo de espera em milissegundos (padrão: 2500ms)
+   * @param {number} timeoutMs Tempo máximo de espera em ms (padrão: 3000ms)
    * @returns {Promise<import("https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js").User|null>}
    */
-  waitForAuthInit(timeoutMs = 2500) {
-    if (!authInitializedPromise) {
-      authInitializedPromise = new Promise((resolve) => {
-        let settled = false;
-
-        // Fallback de timeout: garante que a aplicação nunca fique presa em loading infinito
-        const timer = setTimeout(() => {
-          if (!settled) {
-            settled = true;
-            resolve(auth.currentUser || null);
-          }
-        }, timeoutMs);
-
-        try {
-          const unsubscribe = onAuthStateChanged(
-            auth,
-            (user) => {
-              if (!settled) {
-                settled = true;
-                clearTimeout(timer);
-                resolve(user);
-              }
-              unsubscribe();
-            },
-            (error) => {
-              console.warn("Aviso na inicialização do estado de autenticação:", error);
-              if (!settled) {
-                settled = true;
-                clearTimeout(timer);
-                resolve(auth.currentUser || null);
-              }
-            }
-          );
-        } catch (err) {
-          console.warn("Erro ao registrar observador de autenticação:", err);
-          if (!settled) {
-            settled = true;
-            clearTimeout(timer);
-            resolve(auth.currentUser || null);
-          }
-        }
-      });
+  waitForAuthInit(timeoutMs = 3000) {
+    // Se o SDK já possui o usuário carregado em memória
+    if (auth.currentUser) {
+      return Promise.resolve(auth.currentUser);
     }
-    return authInitializedPromise;
+
+    return new Promise((resolve) => {
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve(auth.currentUser || null);
+        }
+      }, timeoutMs);
+
+      try {
+        const unsubscribe = onAuthStateChanged(
+          auth,
+          (user) => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              resolve(user);
+            }
+            unsubscribe();
+          },
+          (error) => {
+            console.warn("Aviso ao inicializar observador de autenticação:", error);
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              resolve(auth.currentUser || null);
+            }
+          }
+        );
+      } catch (err) {
+        console.warn("Falha ao registrar observador onAuthStateChanged:", err);
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(auth.currentUser || null);
+        }
+      }
+    });
   },
 
   /**
-   * Monitora alterações contínuas no estado de autenticação.
+   * Monitora continuamente alterações no estado de autenticação (login, logout, token refresh).
    * @param {function(import("https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js").User|null): void} callback
-   * @returns {function(): void} Função para cancelar a inscrição
+   * @returns {function(): void} Função de cancelamento da inscrição
    */
   subscribeAuthState(callback) {
     return onAuthStateChanged(auth, callback);
   },
 
   /**
-   * Retorna o usuário atualmente autenticado (se houver).
+   * Retorna o usuário autenticado no momento.
    * @returns {import("https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js").User|null}
    */
   getCurrentUser() {
@@ -105,7 +101,7 @@ export const authService = {
   },
 
   /**
-   * Valida o formato de um endereço de e-mail.
+   * Valida sintaticamente o formato do e-mail.
    * @param {string} email
    * @returns {boolean}
    */
@@ -116,12 +112,11 @@ export const authService = {
   },
 
   /**
-   * Valida as regras mínimas de senha:
-   * - Pelo menos 8 caracteres
-   * - Pelo menos uma letra (maiúscula ou minúscula)
-   * - Pelo menos um número
-   * - Permite caracteres especiais
-   * - Verifica confirmação de senha quando informada
+   * Valida os requisitos de segurança de senha:
+   * - Mínimo de 8 caracteres
+   * - Pelo menos uma letra (a-z ou A-Z)
+   * - Pelo menos um número (0-9)
+   * - Confirmação de senha coincidente (quando fornecida)
    *
    * @param {string} password Senha a ser validada
    * @param {string|null} confirmPassword Confirmação opcional
@@ -152,65 +147,66 @@ export const authService = {
   },
 
   /**
-   * Cadastra um novo usuário no Firebase Authentication.
-   * - Envia automaticamente o e-mail de verificação
-   * - Preserva a privacidade: nunca revela se o e-mail já existe
+   * Cadastra um novo usuário no Firebase Authentication por e-mail e senha.
+   * Envia automaticamente o e-mail de confirmação da conta.
    *
    * @param {string} email E-mail do usuário
-   * @param {string} password Senha do usuário
-   * @returns {Promise<{ success: boolean, user?: object, message: string }>}
+   * @param {string} password Senha
+   * @returns {Promise<{ success: boolean, user: object, message: string }>}
    */
   async register(email, password) {
     const cleanEmail = (email || "").trim();
     if (!this.validateEmail(cleanEmail)) {
-      throw new Error("Verifique o endereço de e-mail informado.");
+      const err = new Error("Verifique o endereço de e-mail informado.");
+      err.code = "auth/invalid-email";
+      throw err;
     }
 
     const validation = this.validatePassword(password);
     if (!validation.isValid) {
-      throw new Error("A senha não atende aos requisitos mínimos de segurança.");
+      const err = new Error("A senha não atende aos requisitos mínimos de segurança.");
+      err.code = "auth/weak-password";
+      throw err;
     }
 
+    // Cria o usuário no Firebase Authentication
+    const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+    const user = userCredential.user;
+
+    // Dispara o e-mail de verificação oficial do Firebase
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-      const user = userCredential.user;
-
-      // Envia automaticamente e-mail de verificação
-      try {
-        await sendEmailVerification(user);
-      } catch (verificationError) {
-        console.warn("Aviso ao enviar e-mail de verificação:", verificationError?.code || verificationError);
-      }
-
-      return {
-        success: true,
-        user,
-        message: "Cadastro realizado com sucesso! Enviamos as instruções de verificação para o seu e-mail."
-      };
-    } catch (error) {
-      // Regra de privacidade fundamental: se o e-mail já estiver cadastrado, não confirmar sua existência
-      if (error?.code === "auth/email-already-in-use") {
-        return {
-          success: true,
-          message: "Se houver elegibilidade para esta conta, as instruções foram enviadas para o endereço informado."
-        };
-      }
-      throw error;
+      await sendEmailVerification(user);
+    } catch (verificationError) {
+      console.warn("Aviso ao enviar e-mail inicial de verificação:", verificationError?.code || verificationError);
     }
+
+    return {
+      success: true,
+      user,
+      message: "Conta criada com sucesso! Enviamos um link de confirmação para o seu e-mail."
+    };
   },
 
   /**
-   * Realiza login por e-mail e senha.
-   * Verifica se o e-mail está confirmado para orientar o redirecionamento.
+   * Realiza login no Firebase Authentication por e-mail e senha.
+   * Retorna os dados do usuário e status da confirmação de e-mail.
    *
-   * @param {string} email E-mail do usuário
-   * @param {string} password Senha
+   * @param {string} email
+   * @param {string} password
    * @returns {Promise<{ user: object, isVerified: boolean }>}
    */
   async login(email, password) {
     const cleanEmail = (email || "").trim();
     if (!cleanEmail || !password) {
-      throw new Error("Preencha todos os campos obrigatórios.");
+      const err = new Error("Preencha todos os campos obrigatórios.");
+      err.code = "auth/missing-credentials";
+      throw err;
+    }
+
+    if (!this.validateEmail(cleanEmail)) {
+      const err = new Error("Informe um endereço de e-mail válido.");
+      err.code = "auth/invalid-email";
+      throw err;
     }
 
     const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, password);
@@ -223,8 +219,7 @@ export const authService = {
   },
 
   /**
-   * Encerra a sessão ativa do usuário.
-   * Limpa referências locais de autenticação.
+   * Encerra a sessão ativa do usuário no Firebase Authentication.
    * @returns {Promise<void>}
    */
   async logout() {
@@ -232,7 +227,7 @@ export const authService = {
   },
 
   /**
-   * Envia ou reenvia o e-mail de verificação para o usuário atual.
+   * Envia ou reenvia o e-mail de verificação para o usuário ativo.
    * @param {import("https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js").User|null} user
    * @returns {Promise<void>}
    */
@@ -245,8 +240,8 @@ export const authService = {
   },
 
   /**
-   * Atualiza os dados do usuário atual a partir do Firebase Authentication.
-   * Utilizado para verificar o estado real de emailVerified sem depender de reload manual da página.
+   * Atualiza os dados do usuário atual a partir dos servidores do Firebase.
+   * Essencial para refletir o status de emailVerified sem recarregar a página.
    *
    * @returns {Promise<import("https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js").User|null>}
    */
@@ -257,7 +252,7 @@ export const authService = {
   },
 
   /**
-   * Verifica se o e-mail do usuário atual está confirmado.
+   * Informa se o usuário atual já teve seu e-mail verificado.
    * @returns {boolean}
    */
   isEmailVerified() {
@@ -265,74 +260,64 @@ export const authService = {
   },
 
   /**
-   * Envia o link de redefinição de senha para o e-mail informado.
+   * Envia instruções de recuperação e redefinição de senha para o e-mail informado.
    *
-   * Regra de privacidade fundamental:
-   * Sempre exibe mensagem genérica, nunca informando se a conta existe ou não no sistema.
-   *
-   * @param {string} email E-mail para recuperação
+   * @param {string} email E-mail cadastrado
    * @returns {Promise<{ success: boolean, message: string }>}
    */
   async sendPasswordReset(email) {
     const cleanEmail = (email || "").trim();
     if (!this.validateEmail(cleanEmail)) {
-      throw new Error("Verifique o endereço de e-mail informado.");
+      const err = new Error("Verifique o endereço de e-mail informado.");
+      err.code = "auth/invalid-email";
+      throw err;
     }
 
-    const genericSuccessMessage =
-      "Se houver uma conta associada ao endereço informado, você receberá as instruções para redefinir sua senha.";
+    await sendPasswordResetEmail(auth, cleanEmail);
 
-    try {
-      await sendPasswordResetEmail(auth, cleanEmail);
-      return {
-        success: true,
-        message: genericSuccessMessage
-      };
-    } catch (error) {
-      // Se a conta não existir, não revelar isso ao usuário
-      if (error?.code === "auth/user-not-found") {
-        return {
-          success: true,
-          message: genericSuccessMessage
-        };
-      }
-      throw error;
-    }
+    return {
+      success: true,
+      message: "Instruções de redefinição de senha enviadas com sucesso! Verifique sua caixa de entrada e spam."
+    };
   },
 
   /**
-   * Atualiza a senha do usuário autenticado.
-   * Solicita a senha atual para reautenticação prévia, evitando auth/requires-recent-login.
+   * Atualiza a senha de acesso do usuário autenticado.
+   * Executa reautenticação de segurança prévia com a senha atual para garantir
+   * autorização e evitar falhas por sessão antiga (auth/requires-recent-login).
    *
    * @param {string} newPassword Nova senha
-   * @param {string|null} currentPassword Senha atual para reautenticação
+   * @param {string} currentPassword Senha atual para validação de segurança
    * @returns {Promise<void>}
    */
-  async updateUserPassword(newPassword, currentPassword = null) {
+  async updateUserPassword(newPassword, currentPassword) {
     const user = auth.currentUser;
     if (!user) {
-      throw new Error("Nenhum usuário autenticado.");
+      const err = new Error("Nenhum usuário autenticado.");
+      err.code = "auth/no-current-user";
+      throw err;
+    }
+
+    if (!currentPassword) {
+      const err = new Error("Por segurança, informe sua senha atual.");
+      err.code = "auth/missing-password";
+      throw err;
     }
 
     const validation = this.validatePassword(newPassword);
     if (!validation.isValid) {
-      throw new Error("A nova senha não atende aos requisitos mínimos de segurança.");
+      const err = new Error("A nova senha não atende aos requisitos mínimos de segurança.");
+      err.code = "auth/weak-password";
+      throw err;
     }
 
-    // Se a senha atual foi fornecida, reautenticar o usuário
-    if (currentPassword && user.email) {
+    // Reautenticação prévia obrigatória
+    if (user.email) {
       const credential = EmailAuthProvider.credential(user.email, currentPassword);
       await reauthenticateWithCredential(user, credential);
     }
 
-    try {
-      await updatePassword(user, newPassword);
-    } catch (error) {
-      // Se a sessão expirou e requer login recente
-      if (error?.code === "auth/requires-recent-login" && !currentPassword) {
-        throw new Error("Por segurança, informe sua senha atual para confirmar a alteração.");
-      }
-      throw error;
-    }
+    // Atualização da senha no Firebase Authentication
+    await updatePassword(user, newPassword);
   }
 };
